@@ -43,15 +43,16 @@
 - **发布包**：`@morehao/dsh-commands`（**本仓根即包根**：根 `package.json` 就是包清单，无 workspace、无子包目录）。
 - **发布模型**：打 `vX.Y.Z` tag → OIDC（Trusted Publishing）自动发布，**不需要长效 token**。
 - **自动发布**：`.github/workflows/release.yml`（tag 触发）→ `scripts/ci-publish.sh`（发布逻辑）。
+- **Release**：同一个 job 在 npm 发布**成功后**建 GitHub Release，body = 注记 tag 的正文（`scripts/release-notes.mjs` 原样投影，不重算、不改写；已存在则跳过）。
 - **范围**：全仓仅此一个包；技能与 opencode 入口在另一仓（[`morehao/ai-kit`](https://github.com/morehao/ai-kit)），**不入包**。
 
 ## 2. 日常发新版（操作手册）
 
 > **稳定分支不接受直接提交，发版升版本也不例外。** 升版本走 `git-kit`：`commit-push`（起点是稳定分支时自动建工作分支）→ `pr-create` → `pr-merge` 合并到 `main`。规则单一定义在 `skills/git-kit/references/stable-branch.md`；打 tag 侧的约束见 `skills/git-kit/references/tag.md`「发版约束」。
 >
-> **合并之后那一步用 `/git-release`**（git-kit 的 `release` 分支）：它只做 `pr-merge` 之后的部分——只读预检 → 一次计划卡确认 → 打注记 tag → **默认创建 GitHub Release**（body 复用同一份变更说明：**中文摘要层 + 折叠的原文层**，推送前确认并冻结；CI 已建则只校验）→ 逐个跟踪其他后效并出回执。它不改版本号、不开无关 PR；可选「写 `CHANGELOG.md`」——选了就为这个文件开 `docs/changelog-<tag>` 分支走一次 PR，且必须在打 tag 前合入（不选则完全不碰工作区）。`STATE` 四个值：`READY` 直接进计划卡；`TAGGED` 表示 tag 已在（重跑会补建缺失的 Release 或只做校验，正文从 tag 注记读回、不重算）；`NEEDS_TARGET` 表示这次发哪个版本还没定——先读仓库确认版本源，再带版本重跑，**不是**问你要 tag；`BLOCKED` 表示有阻断项（版本没领先 tag / tag 不在主干 / `tag-version-mismatch` 等），按 `BLOCKERS` 处理——多数情况先走升版本 PR。版本源是**读仓库得出的判断**（本仓就是根 `package.json` 的 `version`，回查用 `--version <v> --version-file package.json`），git-kit 不内置清单表，也不假定仓库发 npm。手动 `git tag` 仍有效，两者共用同一份 `tag.md`「发版约束」。
+> **合并之后那一步用 `/git-release`**（git-kit 的 `release` 分支）：它只做 `pr-merge` 之后的部分——只读预检 → 一次计划卡确认 → 打注记 tag → **创建/校验 GitHub Release**（body 复用同一份变更说明：**中文摘要层 + 折叠的原文层**，推送前确认并冻结；**本仓由 CI 创建，流程只校验**）→ 逐个跟踪其他后效并出回执。它不改版本号、不开无关 PR；可选「写 `CHANGELOG.md`」——选了就为这个文件开 `docs/changelog-<tag>` 分支走一次 PR，且必须在打 tag 前合入（不选则完全不碰工作区）。`STATE` 四个值：`READY` 直接进计划卡；`TAGGED` 表示 tag 已在（重跑会补建缺失的 Release 或只做校验，正文从 tag 注记读回、不重算）；`NEEDS_TARGET` 表示这次发哪个版本还没定——先读仓库确认版本源，再带版本重跑，**不是**问你要 tag；`BLOCKED` 表示有阻断项（版本没领先 tag / tag 不在主干 / `tag-version-mismatch` 等），按 `BLOCKERS` 处理——多数情况先走升版本 PR。版本源是**读仓库得出的判断**（本仓就是根 `package.json` 的 `version`，回查用 `--version <v> --version-file package.json`），git-kit 不内置清单表，也不假定仓库发 npm。手动 `git tag` 仍有效，两者共用同一份 `tag.md`「发版约束」。
 >
-> **后效按仓库探测，不写死**：git-kit 会探测本仓 tag 触发了哪些 workflow、是否发 npm、是否由 CI 建 Release，再逐个校验。本仓的后效是「`release.yml` + npm」，Release 则由流程默认创建（CI 不建），所以回执里会有 Release 行、workflow 行与 npm 行（npm 用 `--npm-pkg @morehao/dsh-commands` 别名，其他产物有公开地址就传 `--probe-url`）；换成 Go/容器/静态站仓库，同一流程只会报告它实际探测到的部分。只想打标签、不建 Release 就用 `/git-tag`。
+> **后效按仓库探测，不写死**：git-kit 会探测本仓 tag 触发了哪些 workflow、是否发 npm、是否由 CI 建 Release，再逐个校验。本仓的后效是「`release.yml` + npm」，**Release 由 CI 建**（`release.yml` 发布成功后用注记正文创建；`/git-release` 探到后只校验、不重复建），所以回执里会有 Release 行、workflow 行与 npm 行（npm 用 `--npm-pkg @morehao/dsh-commands` 别名，其他产物有公开地址就传 `--probe-url`）；换成 Go/容器/静态站仓库，同一流程只会报告它实际探测到的部分。只想打标签、不建 Release 就用 `/git-tag`。
 
 1. **升版本**：改本仓 `package.json` 的 `version`（如 `0.1.8` → `0.2.0`），如有需要同步 `README.md` / `docs/` / `CHANGELOG.md`；**在分支上提交**并 push，再开 PR 合并到 `main`（`/git-commit-push` → `/git-pr-create` → `/git-pr-merge`）。
 2. **打 tag**（在**合并后**的 `main` 最新提交上打；去掉 `v` 前缀，与 package.json 版本一致）：
@@ -63,6 +64,7 @@
    - 读 `RELEASE_TAG=v0.2.0` → 校验 `0.2.0 == package.json.version`（**不一致拒绝发布**）。
    - 若 npmjs 已存在 `0.2.0` → **跳过**（幂等）。
    - 否则 OIDC：`npm publish --provenance --access public --registry https://registry.npmjs.org`。
+   - 发布成功后**建 GitHub Release**：正文取自注记 tag（`scripts/release-notes.mjs` 只做投影，不重新生成），已存在则跳过。顺序是「先有包、再有 Release」，发布失败不会留下悬挂的 Release；重跑该 run 即可补建（publish 会幂等跳过）。
    - 失败时**先看 https://status.npmjs.org**：`Package publishing` 降级期间 PUT 会回 `E404 Not found`（令牌交换失败的表现与权限问题相同）。`ci-publish.sh` 已内置 3 次退避重试 + 失败后回读 registry，抖动通常自动过去了；仍失败就等恢复后 `gh run rerun <run-id>`，**不要**为此删 tag 重打。
 
 > 提示：tag 版本与 `package.json` 版本必须一致，否则 `ci-publish.sh` 会以非零退出并阻止发布（这是防误发的守卫）。tag 打在合并后的 `main` 提交上即可——版本号是随 PR 一起进 `main` 的，不需要单独为它破例直推。
