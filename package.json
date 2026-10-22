@@ -49,5 +49,9 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
+  },
+  "scripts": {
+    "test": "node scripts/smoke-skill-setup.mjs && node scripts/smoke-skill-cache.mjs",
+    "check": "node scripts/check-naming.mjs && node scripts/check-pack.mjs && node scripts/smoke-skill-setup.mjs && node scripts/smoke-skill-cache.mjs"
   }
 }

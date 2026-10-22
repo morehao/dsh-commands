@@ -31,6 +31,9 @@ jobs:
           node --check lib/index.js
           node --check lib/skill-setup.js
           node --check lib/skill-cache.js
+          node --check lib/skill-paths.js
+          node --check lib/text.js
+          node --check lib/proc.js
           node --check lib/job-progress.js
           node --check scripts/smoke-skill-setup.mjs
           node --check scripts/smoke-skill-cache.mjs
