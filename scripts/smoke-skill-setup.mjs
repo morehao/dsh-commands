@@ -123,6 +123,7 @@ try {
 	const callsBefore = await stubCalls();
 	text = await runSkillInit(COMMANDS, {});
 	check(text.includes("已托管，跳过"), "init 幂等：已托管技能跳过", text);
+	check(text.startsWith("✓ 无需操作："), "init 幂等：首行是结论式「无需操作」", text);
 	check((await stubCalls()) === callsBefore, "init 幂等：未再次调用 CLI");
 
 	// ---- 3) unmanaged（本地 clone 软链）→ 替换，不做备份 --------------------
@@ -281,6 +282,11 @@ try {
 		"jobs：CLI 输出流进作业面板",
 		JSON.stringify(fake.state.chunks),
 	);
+	check(
+		fake.state.chunks.some((chunk) => chunk.channel === "log" && String(chunk.text).includes("检查依赖技能")),
+		"jobs：阶段文案同时写进输出（log 通道，面板里能读到执行流水）",
+		JSON.stringify(fake.state.chunks.slice(0, 4)),
+	);
 	check(fake.state.awaited === true, "jobs：结算前已 wait（awaited，不投完成通知）", JSON.stringify(fake.state));
 	check(outcome.job?.id === fake.id, "jobs：结果带回作业视图", JSON.stringify(outcome.job));
 	check(
@@ -311,6 +317,26 @@ try {
 		work: () => runSkillInit(COMMANDS, {}),
 	});
 	check(killed.killed === true && killWorkDone, "jobs：作业被停止时返回 killed（不误报成功）", JSON.stringify(killed));
+
+	// 无事可做：命令自己给出理由 → 不建作业（头部不出现零输出的空作业行），工作照常执行
+	const idleJobs = createFakeJobs();
+	const idleOutcome = await runInJob({
+		jobs: idleJobs.api,
+		owner: "session-1",
+		kind: "skill-init",
+		label: "x",
+		skip: "git-kit、handoff 均已托管，没有需要安装或修复的技能",
+		work: () => runSkillInit(COMMANDS, {}),
+	});
+	check(idleJobs.state.starts.length === 0, "无事可做：没有启动作业", JSON.stringify(idleJobs.state.starts));
+	check(
+		idleOutcome.job === undefined &&
+			idleOutcome.skippedReason !== undefined &&
+			typeof idleOutcome.value === "string" &&
+			idleOutcome.value.length > 0,
+		"无事可做：跳过作业但照常执行并出回执",
+		String(idleOutcome.value),
+	);
 
 	// 命令被取消（signal）→ 只 kill 作业、继续等终态（保住 awaited）
 	const abortController = new AbortController();
