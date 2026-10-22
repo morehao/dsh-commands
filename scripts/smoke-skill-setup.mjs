@@ -119,7 +119,6 @@ try {
 		resolveSkillSource,
 		probeUrlForSource,
 		probeSourceReachability,
-		jobSkipReason,
 		planSkillOperation,
 	} = await import("../lib/skill-setup.js");
 	const { COMMANDS } = await import("../lib/index.js");
@@ -225,6 +224,12 @@ try {
 	check(text.includes("已托管，跳过"), "init 幂等：已托管技能跳过", text);
 	check(text.startsWith("✓ 已是最新："), "init 幂等：首行是结论式「已是最新」", text);
 	check((await stubCalls()) === callsBefore, "init 幂等：未再次调用 CLI");
+	const idlePlan = await planSkillOperation("skill-init", COMMANDS, "");
+	check(
+		idlePlan.skipReason === "已全部托管，无需安装",
+		"init：plan 给出短因（不复述「已是最新」）",
+		String(idlePlan.skipReason),
+	);
 
 	// ---- 3) unmanaged（本地 clone 软链）→ 替换，不做备份 --------------------
 	await rm(linkPath("handoff"));
@@ -263,6 +268,7 @@ try {
 	);
 	text = await runSkillInit(COMMANDS, {});
 	check(text.includes("✗ handoff") && text.includes("拒绝覆盖"), "init：真实目录被拒绝覆盖", text);
+	check(text.includes("遮蔽提示"), "init：真实目录给出「会遮蔽托管版本」的提示", text);
 	check((await stat(linkPath("handoff"))).isDirectory(), "init：真实目录原样保留（没有删）");
 	check(
 		(await readFile(join(linkPath("handoff"), "SKILL.md"), "utf8")).includes("手工拷进来的"),
@@ -322,10 +328,11 @@ try {
 		"install：软链指向 canonical",
 	);
 	check((await stubCalls()) === callsBeforeInstall + 1, "install：只调用一次 CLI");
-	const installSkip = await jobSkipReason("skill-install", COMMANDS, "acme/toolkit tech-design");
+	const installPlan = await planSkillOperation("skill-install", COMMANDS, "acme/toolkit tech-design");
+	const installSkip = installPlan.skipReason;
 	check(
 		typeof installSkip === "string" && installSkip.includes("托管"),
-		"install：已托管的显式技能不建作业（jobSkipReason）",
+		"install：已托管的显式技能不建作业（planSkillOperation）",
 		String(installSkip),
 	);
 
