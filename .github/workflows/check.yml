@@ -33,6 +33,12 @@ jobs:
           node --check lib/job-progress.js
           node --check scripts/smoke-skill-setup.mjs
 
+      # Release body 由 CI 从注记 tag 投影（见 release.yml），取正文必须与 git-kit 的读回管道逐字一致。
+      - name: 发布说明投影（Release body）
+        run: |
+          node --check scripts/release-notes.mjs
+          node scripts/smoke-release-notes.mjs
+
       - name: 三处命名一致（包名 / 模块标识符 / 插件名）
         run: node scripts/check-naming.mjs
 
