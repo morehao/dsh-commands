@@ -98,16 +98,16 @@ npx -y skills add morehao/ai-kit …
 
 ## `/skill-init`
 
-只装插件依赖的两个技能（`git-kit`、`handoff`）。
+只装插件依赖的三个技能（`git-kit`、`handoff`、`disk-cleanup`）。
 
 | 现状 | 行为 |
 |---|---|
-| `~/.dsh/skills` 里没有 | 从缓存安装 `git-kit`、`handoff` → 软链 `~/.dsh/skills/*` → `~/.agents/skills/*` |
+| `~/.dsh/skills` 里没有 | 从缓存安装 `git-kit`、`handoff`、`disk-cleanup` → 软链 `~/.dsh/skills/*` → `~/.agents/skills/*` |
 | 已手工 `git clone ai-kit && ln -s` | 判定为「非托管软链」→ **替换**软链，clone 目录不动 |
 | 已经是托管软链 | 缓存 TTL 内且 hash 一致 → 跳过；TTL 过期 → 检查上游，有变化才重装 |
 | 同名位置是真实目录 | 该技能报「拒绝覆盖」，其余照常 |
 
-顺带校验分支契约（`git-kit` 的 9 个分支文件是否齐），结束提示「无需重启 dsh」。
+顺带校验分支契约（`git-kit` 的 9 个分支文件、`disk-cleanup` 的 `cleanup` 分支；`handoff` 是单分支，只校验 `SKILL.md`），结束提示「无需重启 dsh」。
 
 缓存 TTL 内确认最新、或测试桩/本地路径下已托管时，不会创建后台任务，回执首行直接给结论；TTL 过期会建作业检查上游，见 [过程可见](./job-progress.md)。
 
@@ -126,7 +126,7 @@ npx -y skills add morehao/ai-kit …
 
 **安装不是盲目 no-op**：显式技能名已由同一来源托管时，先比对缓存与 lock；TTL 内且 hash 一致返回「已是最新」，不调 CLI；TTL 过期会 fetch 检查，有变化才重装。拉插件依赖技能的新版本用 `/skill-update`；额外技能用 `/skill-install` 重新检查（或 `npx skills update`，见下节）。不指定技能名时仍会确保缓存可用（TTL 过期才 fetch）并发现新技能。
 
-[`morehao/ai-kit`](https://github.com/morehao/ai-kit) 现提供 6 个技能：`git-kit`、`handoff`（插件依赖，由 `/skill-init` 管）与 `project-insight`、`project-wiki`、`svg-maker`、`tech-design`（按需 `/skill-install`）。
+[`morehao/ai-kit`](https://github.com/morehao/ai-kit) 现提供 7 个技能：`git-kit`、`handoff`、`disk-cleanup`（插件依赖，由 `/skill-init` 管）与 `project-insight`、`project-wiki`、`svg-maker`、`tech-design`（按需 `/skill-install`）。
 
 | 想要的能力 | 命令 |
 |---|---|
@@ -142,13 +142,13 @@ npx -y skills add morehao/ai-kit …
 把插件依赖的技能更新到上游最新并校验软链仍可解析；未托管/缺失条目只提示、不动。
 
 ```bash
-/skill-update            # 更新 git-kit + handoff
+/skill-update            # 更新 git-kit + handoff + disk-cleanup
 /skill-update git-kit    # 只更新一个
 ```
 
 更新流程：强制 `git fetch --depth 1` 刷新缓存 → 从缓存 `skills add` → 回写 lock → 校验软链。fetch 失败时命令明确失败（不拿旧缓存冒充更新）；安装类命令则允许旧缓存并在回执里标注离线。
 
-候选集只来自 `COMMANDS` 的依赖（`git-kit`、`handoff`），`/skill-update svg-maker` 会报「未知技能」。用 `/skill-install` 装进来的额外技能用以下任一方式更新：
+候选集只来自 `COMMANDS` 的依赖（`git-kit`、`handoff`、`disk-cleanup`），`/skill-update svg-maker` 会报「未知技能」。用 `/skill-install` 装进来的额外技能用以下任一方式更新：
 
 ```bash
 /skill-install morehao/ai-kit tech-design          # 已托管时先检查缓存；TTL 过期才 fetch
@@ -171,7 +171,7 @@ npx -y skills update tech-design -g -y       # 绕过插件，直接用上游 ha
 ln -sfn ~/practice/ai/ai-kit/skills/git-kit ~/.dsh/skills/git-kit
 ```
 
-> 这三个命令自 **v0.1.9** 起提供；运行期的作业行 / 流式输出自 **v0.1.10** 起提供；本地缓存与直接调用 CLI 为当前未发布改动。
+> 这三个命令自 **v0.1.9** 起提供；运行期的作业行 / 流式输出自 **v0.1.10** 起提供；本地缓存与直接调用 CLI、以及 `/cleanup` / `disk-cleanup` 依赖为当前未发布改动。
 
 ## 手工准备（不想让插件动 home）
 

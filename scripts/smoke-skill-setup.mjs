@@ -57,7 +57,7 @@ const source = argv[1];
 const skills = [];
 for (let i = 0; i < argv.length; i++) if (argv[i] === "--skill") skills.push(argv[++i]);
 if (skills.length === 0) skills.push("demo-a", "demo-b");
-const branches = { "git-kit": ["commit-push","commit-message","branch","pr-create","pr-merge","tag","release","slim","star-classify"] };
+const branches = { "git-kit": ["commit-push","commit-message","branch","pr-create","pr-merge","tag","release","slim","star-classify"], "disk-cleanup": ["cleanup"] };
 for (const name of skills) {
 	const dir = join(homedir(), ".agents", "skills", name);
 	await mkdir(dir, { recursive: true });
@@ -185,12 +185,16 @@ try {
 
 	// ---- 1) missing → 安装 + 软链 -------------------------------------------
 	let text = await runSkillInit(COMMANDS, {});
-	check(text.includes("✓ git-kit") && text.includes("✓ handoff"), "init：缺失技能被安装", text);
+	check(
+		text.includes("✓ git-kit") && text.includes("✓ handoff") && text.includes("✓ disk-cleanup"),
+		"init：缺失技能被安装",
+		text,
+	);
 	check(existsSync(join(canonical("git-kit"), "SKILL.md")), "init：canonical 目录已生成");
 	check(
-		existsSync(linkPath("git-kit")) && existsSync(linkPath("handoff")),
-		"init：两个技能都软链进 $DSH_HOME/skills",
-		`${linkPath("git-kit")} / ${linkPath("handoff")}`,
+		existsSync(linkPath("git-kit")) && existsSync(linkPath("handoff")) && existsSync(linkPath("disk-cleanup")),
+		"init：三个技能都软链进 $DSH_HOME/skills",
+		`${linkPath("git-kit")} / ${linkPath("handoff")} / ${linkPath("disk-cleanup")}`,
 	);
 	check((await readlinkOrError(linkPath("git-kit"))) === canonical("git-kit"), "init：软链指向 canonical 目录");
 	check(!text.includes("契约问题"), "init：契约校验无失败项", text);
@@ -202,7 +206,7 @@ try {
 		JSON.stringify(argv0),
 	);
 	check(
-		argv0.filter((arg) => arg === "--skill").length === 2,
+		argv0.filter((arg) => arg === "--skill").length === 3,
 		"init：只为缺失技能传 --skill",
 		JSON.stringify(argv0),
 	);
@@ -234,7 +238,11 @@ try {
 	// ---- 4) /skill-update ---------------------------------------------------
 	const callsBeforeUpdate = await stubCalls();
 	text = await runSkillUpdate(COMMANDS, "", {});
-	check(text.includes("✓ git-kit") && text.includes("✓ handoff"), "update：两个托管技能都更新", text);
+	check(
+		text.includes("✓ git-kit") && text.includes("✓ handoff") && text.includes("✓ disk-cleanup"),
+		"update：三个托管技能都更新",
+		text,
+	);
 	check((await stubCalls()) === callsBeforeUpdate + 1, "update：只调用一次 CLI（批量）");
 	check(existsSync(join(linkPath("git-kit"), "SKILL.md")), "update：软链仍可读");
 
@@ -487,7 +495,7 @@ try {
 		owner: "session-1",
 		kind: "skill-init",
 		label: "x",
-		skip: "git-kit、handoff 均已托管，没有需要安装或修复的技能",
+		skip: "git-kit、handoff、disk-cleanup 均已托管，没有需要安装或修复的技能",
 		work: () => runSkillInit(COMMANDS, {}),
 	});
 	check(idleJobs.state.starts.length === 0, "无事可做：没有启动作业", JSON.stringify(idleJobs.state.starts));
@@ -623,8 +631,8 @@ try {
 		},
 	});
 	check(
-		registered.size === 13 && registered.has("skill-init") && registered.has("git-message"),
-		"e2e：注册了 13 条命令（10 委托 + 3 本地）",
+		registered.size === 14 && registered.has("skill-init") && registered.has("git-message") && registered.has("cleanup"),
+		"e2e：注册了 14 条命令（11 委托 + 3 本地）",
 		[...registered.keys()].join(","),
 	);
 	const e2eResult = await registered.get("skill-init").handler({
@@ -635,6 +643,54 @@ try {
 	check(e2eResult.kind === "success" && e2eResult.text.includes("技能依赖检查 ·"), "e2e：/skill-init 返回结构化回执", e2eResult.text);
 	check(e2eResult.text.includes("过程：作业 skill-init-fake"), "e2e：回执末行指向作业", e2eResult.text);
 	check(e2eJobs.state.starts[0]?.owner === "session-e2e", "e2e：作业 owner 是当前会话", JSON.stringify(e2eJobs.state.starts[0]));
+
+	// /cleanup 与其它命令不同：无参数时必须先问再动（技能第 0 步），不能被通用语带去直接执行。
+	let cleanupMessage;
+	const cleanupResult = registered.get("cleanup").handler({
+		rawInput: "",
+		signal: undefined,
+		agent: {
+			session: { id: "session-e2e" },
+			followup(message) {
+				cleanupMessage = message;
+			},
+		},
+	});
+	const cleanupText = cleanupMessage?.content?.[0]?.text ?? "";
+	check(
+		cleanupResult.kind === "success" && cleanupResult.text.includes("disk-cleanup cleanup"),
+		"e2e：/cleanup 委托到 disk-cleanup 的 cleanup 分支",
+		cleanupResult.text,
+	);
+	check(
+		cleanupText.includes("编号选项") && cleanupText.includes("不要执行任何脚本"),
+		"e2e：/cleanup 无参数时注入第 0 步「先给选项、不跑脚本」",
+		cleanupText,
+	);
+	check(!cleanupText.includes("按分支流程默认处理"), "e2e：/cleanup 无参数时不带通用的默认处理措辞", cleanupText);
+	check(
+		cleanupMessage?.role === "user" && cleanupMessage?.source?.kind === "user",
+		"e2e：/cleanup 注入的是一条 user 消息",
+		JSON.stringify({ role: cleanupMessage?.role, source: cleanupMessage?.source }),
+	);
+
+	let cleanupArgsMessage;
+	registered.get("cleanup").handler({
+		rawInput: "看看什么最占地方",
+		signal: undefined,
+		agent: {
+			session: { id: "session-e2e" },
+			followup(message) {
+				cleanupArgsMessage = message;
+			},
+		},
+	});
+	const cleanupArgsText = cleanupArgsMessage?.content?.[0]?.text ?? "";
+	check(
+		cleanupArgsText.includes("看看什么最占地方") && cleanupArgsText.includes("清理项编码"),
+		"e2e：/cleanup 带参数时原样透传范围并提示勾选编码",
+		cleanupArgsText,
+	);
 } finally {
 	await rm(root, { recursive: true, force: true });
 }

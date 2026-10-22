@@ -25,10 +25,10 @@
 
 | 场景 | 作业 | 回执首行 |
 |---|---|---|
-| `/skill-init`，已托管且 TTL 内 hash 一致 | 不建 | `✓ 已是最新：git-kit、handoff · 0.7s` |
-| `/skill-init`，已托管但 TTL 过期（fetch 后无变化） | 建 | `✓ 已是最新：git-kit、handoff · 4.5s · 缓存 c570a7b` |
-| `/skill-init`，需要装/换软链（首次 clone） | 建 | `技能依赖检查 · git-kit、handoff · 8.0s · 缓存 c570a7b` |
-| `/skill-init`，需要装/换软链（已缓存） | 建 | `技能依赖检查 · git-kit、handoff · 1.0s · 缓存 c570a7b` |
+| `/skill-init`，已托管且 TTL 内 hash 一致 | 不建 | `✓ 已是最新：git-kit、handoff、disk-cleanup · 0.7s` |
+| `/skill-init`，已托管但 TTL 过期（fetch 后无变化） | 建 | `✓ 已是最新：git-kit、handoff、disk-cleanup · 4.5s · 缓存 c570a7b` |
+| `/skill-init`，需要装/换软链（首次 clone） | 建 | `技能依赖检查 · git-kit、handoff、disk-cleanup · 8.0s · 缓存 c570a7b` |
+| `/skill-init`，需要装/换软链（已缓存） | 建 | `技能依赖检查 · git-kit、handoff、disk-cleanup · 1.0s · 缓存 c570a7b` |
 | `/skill-install <来源> <技能名>`，TTL 内 hash 一致 | 不建 | `✓ 已是最新：…（缓存 TTL 内且与 lock 一致）· 0.7s` |
 | `/skill-install <来源> <技能名>`，TTL 过期且上游有变化 | 建 | `技能安装 · 来源 <来源> · … · 2s · 缓存 …` |
 | `/skill-install <来源>`，不指定技能名 / 有新装 | 建 | `技能安装 · 来源 <来源> · … · 1–3s · 缓存 c570a7b` |

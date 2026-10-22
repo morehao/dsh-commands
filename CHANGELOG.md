@@ -6,6 +6,15 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **`/cleanup`：接入 ai-kit 的 `disk-cleanup` 技能**（macOS 为主）。先只读测量、出带实测大小的
+  清单，由用户勾选清理项后只跑 `--only <编码>`；用户数据只报告不代删。**无参数时不执行任何脚本**，
+  先给编号选项（只看占用 / 选勾清理 / 只处理本地数据库 / 取消），与 opencode 的 `/cleanup` 同一套流程；
+  `COMMANDS` 新增 `noInput` / `confirm` 两个可选字段来承载这条命令的特殊语义。
+- `/skill-init`、`/skill-update` 的依赖集合自动包含 `disk-cleanup`（仍由 `COMMANDS` 推导，没有第二份
+  清单）；跨仓契约校验新增 `disk-cleanup#cleanup`。
+
 ### 性能
 
 - **技能安装改为「本地缓存 + 直接调用 skills CLI」**，仍然走官方 `skills add`，产物仍是标准
@@ -42,6 +51,8 @@
 
 ### 测试
 
+- 冒烟新增 `/cleanup` 端到端断言：命令注册数 14、无参数时注入第 0 步的「编号选项 / 不要执行任何脚本」、
+  不带通用默认措辞、带参数时原样透传范围并提示勾选编码；技能自举覆盖三个依赖技能（共 85 项）。
 - 冒烟新增连通性预检 URL 归一化、并发拒绝、硬超时措辞与锁释放、轮换字形 spinner 等断言。
 - 新增 `scripts/smoke-skill-cache.mjs`（24 项，离线）：cache clone/TTL/refresh/离线模式/fetch 失败回退、
   `--json` 解析、lock 来源/git tree hash 回写、`cacheStatus` 与 `cachedSkillHash`。另用真实 ai-kit 验证首次 8.0s、缓存修复 1.0s、
