@@ -66,6 +66,9 @@ jobs:
             echo "Release ${TAG} 已存在；跳过（幂等）"
             exit 0
           fi
+          # actions/checkout 对 tag 事件会再执行一次 `+<sha>:refs/tags/<tag>`，把本地 ref 重指成轻量 tag，
+          # 注记对象随之丢失（v0.1.13 就是因此失败）。按 refs/tags 显式回拉一次，恢复注记后再投影正文。
+          git fetch --force --no-recurse-submodules origin "+refs/tags/${TAG}:refs/tags/${TAG}"
           notes="$(mktemp)"
           node scripts/release-notes.mjs "$TAG" > "$notes"
           args=(--repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --notes-file "$notes")
