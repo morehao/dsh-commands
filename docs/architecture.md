@@ -26,6 +26,20 @@ export const REQUIRED_SKILLS = Object.freeze(referencedSkills(COMMANDS));
 
 新增/删除委托型命令后，技能自举与 `/skill-update` 自动跟进，不需要维护第二份清单。
 
+`LOCAL_COMMANDS` 的每条声明包含 `plan` / `label` / `run` 三个函数：
+
+```js
+{
+  plan: (commands, input, options) => planSkillOperation("skill-init", commands, input, options),
+  label: (input) => "检查并安装插件依赖的技能",
+  run: (commands, input, options) => runSkillInit(commands, options),
+}
+```
+
+- `plan` 只做本地判定（不联网）：要不要建作业、处理哪些技能、是否已最新；
+- handler 把 `plan` 的结果同时用于 `runInJob.skip` 与 `run({ plan })`，所以同一条规则只算一次；
+- `run` 不再自己 inspect 技能或比对 hash，只执行 plan 与措辞。
+
 ## 执行链路
 
 1. 用户从斜杠菜单执行命令，进入 `makeHandler(def)`。

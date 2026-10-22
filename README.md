@@ -60,6 +60,7 @@ dsh plugin --profile <profile> add @morehao/dsh-commands
 ## 开发
 
 ```bash
+npm test                                # 两个冒烟（stub + 本地 git，不联网）
 node scripts/check-skill-contract.mjs   # 命令 → 技能分支的跨仓契约（需技能已安装）
 node scripts/smoke-skill-setup.mjs      # 技能自举 + 过程可见（stub，不联网）
 node scripts/smoke-skill-cache.mjs      # 来源缓存 / TTL / lock 回写（本地 git，不联网）

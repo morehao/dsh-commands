@@ -23,19 +23,35 @@
     `git fetch --depth 1` 增量更新；TTL 内（默认 10 分钟）不联网。
   - 安装时把缓存目录交给 `skills add`，不再每次整仓克隆；`skills` 作为依赖直接
     `node bin/cli.mjs`，省掉每次 `npx` 约 2–3s 启动；依赖缺失时才回退 npx。
-    显式设置 `DSH_COMMANDS_SKILLS_CLI` 仍按原样走 npx 指定版本，便于回退/对比。
+    显式设置 `DSH_COMMANDS_SKILL_NPX_SPEC` 仍按原样走 npx 指定版本，便于回退/对比。
   - 使用 `skills add --json` 解析安装结果；安装后把 lock 的 `source`/`sourceType`/`sourceUrl`/
     `skillPath`/`skillFolderHash` 回写为远端身份，实测 `npx skills update` 仍能识别为 up to date。
   - 首次 `/skill-init` 约 7–8s，已缓存补装约 1–1.3s、修复软链约 1.0s、`/skill-update` 约 4.5–5s；
     已托管的显式 `/skill-install` 在 TTL 内只做本地 hash 比对（约 0.3–0.8s），TTL 过期会进入作业检查上游。
-  - 新增 `DSH_COMMANDS_SKILL_CACHE_TTL_MS`（默认 600000；0=每次刷新，<0=离线）、
-    `DSH_COMMANDS_SKILL_CACHE_CLONE_TIMEOUT_MS`（默认 60000）、
-    `DSH_COMMANDS_SKILL_CACHE_FETCH_TIMEOUT_MS`（默认 20000）。
+  - 新增 `DSH_COMMANDS_SKILL_CACHE_TTL_MS`（默认 600000；0=每次刷新，<0=离线）；
+    缓存 git 超时由外层 `DSH_COMMANDS_SKILL_TIMEOUT_MS` 派生，不再单独提供变量。
 - **已安装不再等于永久跳过**：`/skill-init`、`/skill-install` 先比对 lock 的 `skillFolderHash` 与缓存
   git tree hash；TTL 内一致才返回「已是最新」，TTL 过期会 fetch 上游，有变化才重装。`/skill-update`
   始终强制 fetch。
 - 插件 `engines` 与 `skills` 对齐为 Node.js ≥ 22.20；依赖改为 `skills: latest`，npx 回退也不再带
   `@1.7.4`。
+
+### 重构
+
+- **命令判定收敛为一次 `planSkillOperation()`**：`/skill-init`、`/skill-install`、`/skill-update`
+  共用同一份 `{ states, pending, freshness, skipReason }`，`run*` 只执行。no-op 路径从「每技能
+  3 次 inspect、2 次 hash 比对」降到各 1 次；删除了重复的 `cacheUpToDate` 与三份 lock 来源判断。
+- 抽出 `lib/skill-paths.js`（路径）、`lib/text.js`（ANSI/tail）、`lib/proc.js`（子进程 timeout/abort），
+  `runCli` / `runGit` / 连通性预检不再各写一套。
+- `LOCAL_COMMANDS` 的每条声明改为 `plan` / `label` / `run` 三个函数，handler 不再按命令名 switch，
+  也不再 import `jobSkipReason`（兼容层已删除）。
+- **回执文案**：无事可做时的「过程」改为「未创建后台任务（短因）」，如「缓存 TTL 内，无需检查上游」，
+  不再把回执首行的结论复述一遍。
+- **环境变量**：`DSH_COMMANDS_SKILLS_CLI` → `DSH_COMMANDS_SKILL_NPX_SPEC`，
+  `DSH_COMMANDS_SKILL_CLI` → `DSH_COMMANDS_SKILL_CLI_OVERRIDE`（旧名保留一个版本 fallback）；
+  删除 `DSH_COMMANDS_SKILL_CACHE_CLONE_TIMEOUT_MS` / `..._FETCH_TIMEOUT_MS`。
+- `/skill-init` 在软链被真实目录占位时，回执末尾明确提示「会遮蔽 canonical 的托管版本」，而不只是
+  「拒绝覆盖」。
 
 ### 修复
 
@@ -52,7 +68,7 @@
 ### 测试
 
 - 冒烟新增 `/cleanup` 端到端断言：命令注册数 14、无参数时注入第 0 步的「编号选项 / 不要执行任何脚本」、
-  不带通用默认措辞、带参数时原样透传范围并提示勾选编码；技能自举覆盖三个依赖技能（共 85 项）。
+  不带通用默认措辞、带参数时原样透传范围并提示勾选编码；技能自举覆盖三个依赖技能（80 余项）。
 - 冒烟新增连通性预检 URL 归一化、并发拒绝、硬超时措辞与锁释放、轮换字形 spinner 等断言。
 - 新增 `scripts/smoke-skill-cache.mjs`（24 项，离线）：cache clone/TTL/refresh/离线模式/fetch 失败回退、
   `--json` 解析、lock 来源/git tree hash 回写、`cacheStatus` 与 `cachedSkillHash`。另用真实 ai-kit 验证首次 8.0s、缓存修复 1.0s、

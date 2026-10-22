@@ -9,7 +9,7 @@
 | 会话头部的作业行 | 实时阶段文案：`检查依赖技能 → 安装 git-kit → 链入 dsh → 校验契约` |
 | 展开的面板 | 阶段流水（`log` 通道）+ `skills` CLI 的**流式输出**（去 ANSI 的纯文本，下载/进度/Done 都在），保留 256 KB，结算后留 16 KB |
 | 行上的停止控件 | 两击停止：先 SIGTERM 再 SIGKILL 子进程，命令卡片结算为「已停止」 |
-| 命令卡片 | 结构化回执（逐技能结论 + 耗时）+ 一行「过程：作业 `skill-init-…`」 |
+| 命令卡片 | 结构化回执（逐技能结论 + 耗时）+ 一行「过程：作业 `skill-init-…`」；无作业时为「过程：未创建后台任务（短因）」 |
 
 阶段文案同时写进作业输出（`log` 通道，只给观察者）：即使本次一步实事没干，展开面板也有可读的执行流水，而不是空白。
 
@@ -22,6 +22,8 @@
 - 已安装但 TTL 过期时仍会**检查**，不会因为「已托管」就永久跳过；检查失败但技能已托管时回执「已安装；上游检查失败」，不把环境判失败。
 
 这样既不会在会话头部闪一个零输出的空作业行（0.1.10 的实测问题：已托管环境下 `/skill-init` 3ms 结束，头部空作业 + 面板空白，看起来像没执行），也不会让技能永远停在旧版本。
+
+`planSkillOperation()` 一次算出 `skipReason`，skip 文案只解释「为什么没有过程」（如「缓存 TTL 内，无需检查上游」），不再复述回执首行的「已是最新」。
 
 | 场景 | 作业 | 回执首行 |
 |---|---|---|
@@ -49,6 +51,6 @@
 
 ## 实现约束
 
-- `lib/skill-setup.js` 的三个 `run*` 只认 `reporter.progress` / `reporter.write`，不直接接触 `ctx.jobs`；这层适配全在 `lib/job-progress.js` 的 `runInJob` / `NO_REPORTER`。来源缓存与 lock 回写在 `lib/skill-cache.js`。
-- 失败回执会剥掉 ANSI、框线与 CLI 的 ASCII logo（`tail()`），完整输出留在作业面板里；只保留最后 15 行、单行 240 字符、整段 1200 字符，避免 clack 的进度重绘把命令卡片撑到几十 KB。
+- `lib/skill-setup.js` 的 `planSkillOperation()` 与三个 `run*` 只认 `reporter.progress` / `reporter.write`，不直接接触 `ctx.jobs`；这层适配全在 `lib/job-progress.js` 的 `runInJob` / `NO_REPORTER`。来源缓存与 lock 回写在 `lib/skill-cache.js`；输出清洗与子进程分别在 `lib/text.js` / `lib/proc.js`。
+- 失败回执会剥掉 ANSI、框线与 CLI 的 ASCII logo（`lib/text.js` 的 `tail()`），完整输出留在作业面板里；只保留最后 15 行、单行 240 字符、整段 1200 字符，避免 clack 的进度重绘把命令卡片撑到几十 KB。
 - 作业输出先去 ANSI 再旁路：面板是纯文本终端，不去色会把 `[38;5;250m` 之类转义码原样显示。

@@ -2,14 +2,23 @@
 
 `/skill-init`、`/skill-install`、`/skill-update` 不是「意图表」：它们要判断文件状态、建软链、拉上游，结果必须确定，所以直接在 handler 内执行，不交给 agent。
 
-- 实现：`lib/skill-setup.js`（检查 / 安装 / 软链 / 校验）、`lib/skill-cache.js`（来源缓存 / lock 回写）；长任务的过程包装在 `lib/job-progress.js`（见 [过程可见](./job-progress.md)）。
+- 实现：`lib/skill-setup.js`（plan + 安装 / 软链 / 校验）、`lib/skill-cache.js`（来源缓存 / lock 回写）、`lib/skill-paths.js`（路径）、`lib/text.js`（输出清洗）、`lib/proc.js`（子进程）；长任务的过程包装在 `lib/job-progress.js`（见 [过程可见](./job-progress.md)）。
+- 三条命令共用一次 `planSkillOperation()`：本地判定「要不要建作业 / 处理哪些技能 / 是否已最新」，`run*` 只负责执行。同一条规则只有一处实现。
 - 依赖集合仍从 `COMMANDS` 推导（`skill ?? "git-kit"` 去重，导出为 `REQUIRED_SKILLS`），新增委托型命令后自动跟进。
 
-## 为什么需要软链
+## 软链的作用（以及为什么不是加载必需）
 
-dsh **不从 `node_modules` 扫描技能**，技能必须落在 `$DSH_HOME/skills`（默认 `~/.dsh/skills`）下才会进入模型目录。
+dsh **不从 `node_modules` 扫描技能**。它默认扫描项目与用户技能根：用户侧是 `$DSH_HOME/skills`（rank 400，默认 `~/.dsh/skills`）与 `~/.agents/skills`（rank 500）。`skills add -g -a universal` 写的正是后者，所以**仅为了让 dsh 看见，软链不是必需的**。
 
-官方 `skills` CLI（vercel-labs/skills）支持 80+ agent，但**没有 dsh**：它只能把技能取到自己的 canonical 目录，放进 dsh 技能根必须由插件建软链。实际链路：
+本插件仍建 `~/.dsh/skills/<name>` → `~/.agents/skills/<name>` 的软链，原因有三：
+
+1. rank 400 优先于 canonical 的 500，同名旧副本不会抢先；
+2. 用 `target === canonical` 判定「托管 / 非托管」，才能安全地修复软链、拒绝覆盖真实目录；
+3. dsh 自定义 `$DSH_AGENTS_HOME` 时，`$DSH_HOME/skills` 仍是稳定入口。
+
+> 这正是「软链层是否退役」的前提；在迁移与遮蔽检查就位前不要删。
+
+官方 `skills` CLI（vercel-labs/skills）支持 80+ agent，但不认识 dsh 的 `$DSH_HOME`：它只能把技能取到 canonical `~/.agents/skills`。dsh 也会扫这个根，但本插件仍建链，以保留上面的优先级与托管判定。实际链路：
 
 ```
 skills add <本地缓存> --skill <缺的> -g -a universal -y --json
@@ -54,7 +63,7 @@ npx -y skills add morehao/ai-kit …
 
 - 路径：`$DSH_HOME/cache/skills-sources/<sha256(url) 前 16 位>`；`<hash>.meta.json` 记录 URL、commit、fetch 时间。
 - TTL：`DSH_COMMANDS_SKILL_CACHE_TTL_MS`，默认 `600000`（10 分钟）。`0` = 每次都 fetch（适合要求「每次 install 都查上游」）；`<0` = 离线模式，有缓存就不 fetch。
-- 超时：clone `DSH_COMMANDS_SKILL_CACHE_CLONE_TIMEOUT_MS`（默认 60s），fetch `DSH_COMMANDS_SKILL_CACHE_FETCH_TIMEOUT_MS`（默认 20s）。
+- 超时：缓存 git 操作由外层 `DSH_COMMANDS_SKILL_TIMEOUT_MS` 派生——clone 为 `min(60s, max(30s, outer-30s))`，fetch 为 `min(20s, max(5s, outer/4))`；不再单独提供两个环境变量。
 - 删除缓存即可强制重建：`rm -rf "$DSH_HOME/cache/skills-sources"`。
 - 首次 clone 仍做一次 8s 连通性预检；有缓存后不再预检，fetch 失败时安装类命令会继续用旧缓存并在回执里标「离线，未确认上游」；`/skill-update` 则明确失败，不假装更新成功。
 
@@ -76,6 +85,12 @@ npx -y skills add morehao/ai-kit …
 
 `skillFolderHash` 用 `git rev-parse HEAD:<skill dir>` 计算，与上游远端安装写出的 40 位 hash 一致。实测在插件安装后直接跑 `npx skills update handoff -g -y` 会返回 `All global skills are up to date`，说明其他 agent 可以无缝接手。
 
+### 为什么 canonical 固定 `~/.agents/skills`
+
+`skills` CLI 的 universal 全局落点硬编码为 `homedir()/.agents/skills`（上游 `getCanonicalSkillsDir()`），不认识 `$DSH_AGENTS_HOME`。如果插件把 canonical 改成 `$DSH_AGENTS_HOME/skills`，CLI 仍会写到 `~/.agents`，结果是什么都找不到。
+
+因此：canonical 固定 `~/.agents/skills`；dsh 自定义 `$DSH_AGENTS_HOME` 时，靠 `$DSH_HOME/skills` 的软链桥接。简化时不要把这两者合并。
+
 ## 上游约束（由实现决定，改动前请重读）
 
 - **`-a universal` 必须显式给**：不带 `-a` 且没检测到任何 agent 时，`-y` 会把技能装到**全部** agent 目录。`skills update` 内部正是这么 spawn 的，所以 `/skill-update` 也用 `add` 而不是 `update`。
@@ -90,8 +105,9 @@ npx -y skills add morehao/ai-kit …
 - **Node.js ≥ 22.20**（`skills` 包与插件 `engines` 现在一致）。
 - **网络**：首次需要能访问来源仓库；TTL 内安装不再联网，TTL 过期会 fetch 检查上游，`/skill-update` 强制 fetch。GitHub 443 不通时首次 clone 前的 `git ls-remote --heads` 预检默认 8s 失败（`DSH_COMMANDS_SKILL_PROBE_MS` 可调，设 0 关闭；本地路径来源不预检），并给代理/镜像提示。
 - **来源**：默认 `morehao/ai-kit`；`DSH_COMMANDS_SKILL_SOURCE` 可换成可达镜像或本地目录。
-- **CLI 版本**：依赖 `skills`（`package.json` 用 `latest`，安装时取最新，不固定 `1.7.4`），默认直接调用；显式设置 `DSH_COMMANDS_SKILLS_CLI`（如 `skills`）会改走 npx 指定版本。`DSH_COMMANDS_SKILL_CLI` 可完全替换命令本体（视为可执行文件 + 固定前缀，用于测试桩或自定义安装方式；此时跳过缓存、预检与 `--json`）。
-- **超时**：外层硬超时 `DSH_COMMANDS_SKILL_TIMEOUT_MS`（默认 120s）；CLI 自己的克隆超时 `SKILLS_CLONE_TIMEOUT_MS` 会被压到早 30s。缓存 git 操作另有 60s/20s 上限。超时的回执直接写「超时（超过 Ns，已强制终止）」，不再显示成 `退出码 SIGKILL`。
+- **CLI 版本**：依赖 `skills`（`package.json` 用 `latest`，安装时取最新，不固定 `1.7.4`），默认直接调用；显式设置 `DSH_COMMANDS_SKILL_NPX_SPEC`（如 `skills`）会改走 npx 指定版本。`DSH_COMMANDS_SKILL_CLI_OVERRIDE` 可完全替换命令本体（视为可执行文件 + 固定前缀，用于测试桩或自定义安装方式；此时跳过缓存、预检与 `--json`）。
+  - 旧名 `DSH_COMMANDS_SKILLS_CLI` / `DSH_COMMANDS_SKILL_CLI` 仍作为 fallback 读取一个版本，但已 deprecated：它们只差一个字母，极易配错。
+- **超时**：外层硬超时 `DSH_COMMANDS_SKILL_TIMEOUT_MS`（默认 120s）；CLI 自己的克隆超时 `SKILLS_CLONE_TIMEOUT_MS` 会被压到早 30s。缓存 git 操作由外层派生（见上）。超时的回执直接写「超时（超过 Ns，已强制终止）」，不再显示成 `退出码 SIGKILL`。
 - **非交互凭据**：CLI 与缓存 git 子进程固定 `GIT_TERMINAL_PROMPT=0`，并设 `GIT_HTTP_LOW_SPEED_LIMIT=1000` / `GIT_HTTP_LOW_SPEED_TIME=10`，私有仓缺凭据或网络黑洞时会快速失败而不是卡住。
 - **并发**：同一 `DSH_HOME` 同时只允许一个技能安装/更新任务。连按两次回车时，第二次直接提示「已有技能安装任务正在进行」，不会并行 clone 同一个仓库。
 - **npx 回退定位**：依赖缺失时 PATH 找不到 npx 会用登录 shell 反查（GUI 启动的宿主可能缺 per-shell 路径）；仍找不到则报错并给出手工命令。
@@ -105,7 +121,7 @@ npx -y skills add morehao/ai-kit …
 | `~/.dsh/skills` 里没有 | 从缓存安装 `git-kit`、`handoff`、`disk-cleanup` → 软链 `~/.dsh/skills/*` → `~/.agents/skills/*` |
 | 已手工 `git clone ai-kit && ln -s` | 判定为「非托管软链」→ **替换**软链，clone 目录不动 |
 | 已经是托管软链 | 缓存 TTL 内且 hash 一致 → 跳过；TTL 过期 → 检查上游，有变化才重装 |
-| 同名位置是真实目录 | 该技能报「拒绝覆盖」，其余照常 |
+| 同名位置是真实目录 | 该技能报「拒绝覆盖」，其余照常；回执末尾提示它会遮蔽 canonical 的托管版本 |
 
 顺带校验分支契约（`git-kit` 的 9 个分支文件、`disk-cleanup` 的 `cleanup` 分支；`handoff` 是单分支，只校验 `SKILL.md`），结束提示「无需重启 dsh」。
 
