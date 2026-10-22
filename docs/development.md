@@ -7,7 +7,11 @@
 | 路径 | 作用 |
 |---|---|
 | `lib/index.js` | 意图表 `COMMANDS` / `LOCAL_COMMANDS`、`apply()` 注册命令 |
-| `lib/skill-setup.js` | `/skill-init`、`/skill-install`、`/skill-update` 的检查/安装/软链/校验 |
+| `lib/skill-setup.js` | `/skill-init`、`/skill-install`、`/skill-update` 的 plan、安装、软链、校验 |
+| `lib/skill-paths.js` | `$DSH_HOME` / `$DSH_AGENTS_HOME` / lock 路径解析 |
+| `lib/skill-cache.js` | 来源浅克隆缓存、TTL、lock 回写 |
+| `lib/text.js` | ANSI 清洗、spinner 折叠、尾部截断 |
+| `lib/proc.js` | 子进程 timeout / abort / 输出上限 |
 | `lib/job-progress.js` | 把长任务挂到 `ctx.jobs`，作业行/面板/停止/回执 |
 | `locale/{zh,en}.json` | 插件页标题与描述 |
 | `cordis.patch.yml` | dsh profile bundle patch（注册插件） |
@@ -40,11 +44,12 @@ CI 默认不跑契约校验——它依赖另一仓的技能目录。
 ## 冒烟测试
 
 ```bash
+npm test                             # 等价于下面两个冒烟
 node scripts/smoke-skill-setup.mjs   # stub CLI：安装/软链/并发/超时/作业
 node scripts/smoke-skill-cache.mjs   # 本地 git 源：cache/TTL/refresh/离线/lock 回写
 ```
 
-`smoke-skill-setup` 用 `DSH_COMMANDS_SKILL_CLI` 指向一个 stub 顶替 `skills` CLI，在临时 HOME 里覆盖：
+`smoke-skill-setup` 用 `DSH_COMMANDS_SKILL_CLI_OVERRIDE` 指向一个 stub 顶替 `skills` CLI，在临时 HOME 里覆盖：
 
 - 「缺失 → 装 + 软链 / 已托管 → 跳过 / 非托管软链 → 替换 / 真实目录 → 拒绝覆盖 / 任意来源安装 / 更新」六条路径；
 - 全程不联网、不碰真实 `~/.dsh`，也不会产生备份目录；
@@ -60,7 +65,7 @@ node scripts/smoke-skill-cache.mjs   # 本地 git 源：cache/TTL/refresh/离线
 `.github/workflows/check.yml` 在 PR 上机械校验：
 
 - 发布脚本语法（`bash -n scripts/ci-publish.sh`）；
-- 插件语法（`node --check lib/index.js lib/skill-setup.js lib/skill-cache.js lib/job-progress.js` 与冒烟脚本）；
+- 插件语法（`node --check lib/*.js` 与冒烟脚本）；
 - 包名 / 模块标识符 / 插件名三处一致（`scripts/check-naming.mjs`）；
 - 打包内容白名单（`scripts/check-pack.mjs`，防止 `.dsh/` 草稿、`node_modules`、`*.tgz` 混进 npm tarball）；
 - 技能自举冒烟（`scripts/smoke-skill-setup.mjs`）与缓存冒烟（`scripts/smoke-skill-cache.mjs`）。

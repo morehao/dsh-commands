@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // /skill-init 与 /skill-update 的行为冒烟测试：不联网、不碰真实 HOME。
 //
-// 用 DSH_COMMANDS_SKILL_CLI 指向一个 stub 可执行文件来顶替 `npx skills`，覆盖六条路径：
+// 用 DSH_COMMANDS_SKILL_CLI_OVERRIDE 指向一个 stub 可执行文件来顶替 `npx skills`，覆盖六条路径：
 //   1) missing            → 安装 + 软链进 $DSH_HOME/skills
 //   2) 再跑一次（managed） → 跳过，且不再调用 CLI
 //   3) unmanaged（本地 clone 软链）→ 替换为托管软链（本地 clone 不受影响）
@@ -107,7 +107,7 @@ try {
 	// 改 process.env 即可把它们指向临时目录（不触碰真实 ~/.dsh、~/.agents）。
 	process.env.HOME = home;
 	process.env.DSH_HOME = dshHome;
-	process.env.DSH_COMMANDS_SKILL_CLI = stub;
+	process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE = stub;
 	process.env.STUB_LOG = stubLog;
 	process.env.STUB_ENV_LOG = stubEnvLog;
 	process.env.DSH_COMMANDS_SKILL_TIMEOUT_MS = "60000";
@@ -119,7 +119,7 @@ try {
 		resolveSkillSource,
 		probeUrlForSource,
 		probeSourceReachability,
-		jobSkipReason,
+		planSkillOperation,
 	} = await import("../lib/skill-setup.js");
 	const { COMMANDS } = await import("../lib/index.js");
 	check(resolveSkillSource({}) === "morehao/ai-kit", "来源：默认 morehao/ai-kit");
@@ -224,6 +224,12 @@ try {
 	check(text.includes("已托管，跳过"), "init 幂等：已托管技能跳过", text);
 	check(text.startsWith("✓ 已是最新："), "init 幂等：首行是结论式「已是最新」", text);
 	check((await stubCalls()) === callsBefore, "init 幂等：未再次调用 CLI");
+	const idlePlan = await planSkillOperation("skill-init", COMMANDS, "");
+	check(
+		idlePlan.skipReason === "已全部托管，无需安装",
+		"init：plan 给出短因（不复述「已是最新」）",
+		String(idlePlan.skipReason),
+	);
 
 	// ---- 3) unmanaged（本地 clone 软链）→ 替换，不做备份 --------------------
 	await rm(linkPath("handoff"));
@@ -262,6 +268,7 @@ try {
 	);
 	text = await runSkillInit(COMMANDS, {});
 	check(text.includes("✗ handoff") && text.includes("拒绝覆盖"), "init：真实目录被拒绝覆盖", text);
+	check(text.includes("遮蔽提示"), "init：真实目录给出「会遮蔽托管版本」的提示", text);
 	check((await stat(linkPath("handoff"))).isDirectory(), "init：真实目录原样保留（没有删）");
 	check(
 		(await readFile(join(linkPath("handoff"), "SKILL.md"), "utf8")).includes("手工拷进来的"),
@@ -278,9 +285,9 @@ try {
 
 	// 连不上来源：不启动 CLI，几秒内给出可操作错误（用本机 1 端口模拟网络不通）
 	if (spawnSync("git", ["--version"], { stdio: "ignore" }).status === 0) {
-		const savedCli = process.env.DSH_COMMANDS_SKILL_CLI;
+		const savedCli = process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE;
 		const savedProbe = process.env.DSH_COMMANDS_SKILL_PROBE_MS;
-		delete process.env.DSH_COMMANDS_SKILL_CLI;
+		delete process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE;
 		process.env.DSH_COMMANDS_SKILL_PROBE_MS = "2000";
 		let unreachableError = "";
 		const probeStartedAt = Date.now();
@@ -290,8 +297,8 @@ try {
 			unreachableError = String(error.message);
 		}
 		const probeElapsed = Date.now() - probeStartedAt;
-		if (savedCli === undefined) delete process.env.DSH_COMMANDS_SKILL_CLI;
-		else process.env.DSH_COMMANDS_SKILL_CLI = savedCli;
+		if (savedCli === undefined) delete process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE;
+		else process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE = savedCli;
 		if (savedProbe === undefined) delete process.env.DSH_COMMANDS_SKILL_PROBE_MS;
 		else process.env.DSH_COMMANDS_SKILL_PROBE_MS = savedProbe;
 		check(
@@ -321,12 +328,23 @@ try {
 		"install：软链指向 canonical",
 	);
 	check((await stubCalls()) === callsBeforeInstall + 1, "install：只调用一次 CLI");
-	const installSkip = await jobSkipReason("skill-install", COMMANDS, "acme/toolkit tech-design");
+	const installPlan = await planSkillOperation("skill-install", COMMANDS, "acme/toolkit tech-design");
+	const installSkip = installPlan.skipReason;
 	check(
-		typeof installSkip === "string" && installSkip.includes("tech-design"),
-		"install：已托管的显式技能不建作业（jobSkipReason）",
+		typeof installSkip === "string" && installSkip.includes("托管"),
+		"install：已托管的显式技能不建作业（planSkillOperation）",
 		String(installSkip),
 	);
+
+	// 旧变量名只差一个 S：保留 fallback，避免已配置的用户升级后静默失效。
+	const savedOverride = process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE;
+	delete process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE;
+	process.env.DSH_COMMANDS_SKILL_CLI = stub;
+	const legacyPlan = await planSkillOperation("skill-install", COMMANDS, "acme/toolkit tech-design");
+	check(legacyPlan.freshness.cacheSource === false, "env：旧 CLI 变量名仍被识别（fallback）", JSON.stringify(legacyPlan.freshness));
+	if (savedOverride === undefined) delete process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE;
+	else process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE = savedOverride;
+	delete process.env.DSH_COMMANDS_SKILL_CLI;
 
 	// 装"全部"：CLI 未收到 --skill，靠 canonical 目录 diff 找出新技能；
 	// 同时把 demo-a 预先做成真实目录，验证 install 也拒绝覆盖真实目录。

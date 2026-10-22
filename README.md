@@ -60,6 +60,7 @@ dsh plugin --profile <profile> add @morehao/dsh-commands
 ## 开发
 
 ```bash
+npm test                                # 两个冒烟（stub + 本地 git，不联网）
 node scripts/check-skill-contract.mjs   # 命令 → 技能分支的跨仓契约（需技能已安装）
 node scripts/smoke-skill-setup.mjs      # 技能自举 + 过程可见（stub，不联网）
 node scripts/smoke-skill-cache.mjs      # 来源缓存 / TTL / lock 回写（本地 git，不联网）
@@ -69,9 +70,9 @@ CI 在 PR 上校验脚本语法、三处命名一致、打包白名单与技能�
 
 ## 发布
 
-升 `package.json` 版本 → PR 合并 → 在合并后的 `main` 打 `vX.Y.Z` tag，GitHub Actions 用 OIDC 自动发布到 npm（无需长效 token）。workflow 会校验 tag 版本与包版本一致；npm 上已存在同版本则跳过（幂等）。
+升 `package.json` 版本 → PR 合并 → 在合并后的 `main` 打 `vX.Y.Z` tag，GitHub Actions 用 OIDC 自动发布到 npm（无需长效 token），发布成功后用注记 tag 的正文创建 GitHub Release。workflow 会校验 tag 版本与包版本一致；npm 上已存在同版本则跳过（幂等），Release 已存在也跳过。
 
-合并之后推荐用 `/git-release` 完成打 tag、创建 Release 与后效校验；只想打标签、不建 Release 用 `/git-tag`。完整流程、一次性配置与踩坑见 [发布说明](./docs/publishing.md)。
+合并之后推荐用 `/git-release` 完成打 tag、校验 Release 与后效；它探测到本仓由 CI 建 Release 时只校验、不重复建。只想打标签、不建 Release 用 `/git-tag`。完整流程、一次性配置与踩坑见 [发布说明](./docs/publishing.md)。
 
 ## 文档
 
