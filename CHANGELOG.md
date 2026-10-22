@@ -15,6 +15,12 @@
 - `/skill-init`、`/skill-update` 的依赖集合自动包含 `disk-cleanup`（仍由 `COMMANDS` 推导，没有第二份
   清单）；跨仓契约校验新增 `disk-cleanup#cleanup`。
 
+### 变更
+
+- 对齐 ai-kit `git-kit` 的两层变更说明（ai-kit #46）：`/git-release` 与 `/git-tag` 的菜单描述注明 tag 注记 /
+  Release body 为「中文摘要 + 折叠原文」；`docs/publishing.md` 补「推送前确认并冻结」与「`TAGGED` 重跑从
+  tag 注记读回、不重算」。命令仍只做委托，流程与脚本都在技能里。
+
 ### 性能
 
 - **技能安装改为「本地缓存 + 直接调用 skills CLI」**，仍然走官方 `skills add`，产物仍是标准
