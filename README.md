@@ -1,10 +1,12 @@
 # dsh-commands
 
-一个可扩展的 **dsh 原生斜杠命令集合包**（npm 名 `@morehao/dsh-commands`）。当前内置 git-kit 的 Git 工作流命令与 handoff 的跨会话交接命令（与 opencode 入口、自然语言入口共用同一 skill 实现，单一真源）；将来其它 skill 的命令只需往 `lib/index.js` 的 `COMMANDS` 表加条目即可。
+一个可扩展的 **dsh 原生斜杠命令集合包**（npm：`@morehao/dsh-commands`）。把 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 的 **git-kit**（Git 工作流）与 **handoff**（跨会话交接）接入为 dsh 命令。
 
-本仓只做 **dsh 分发/适配单元**：一张意图表 + locale/icon + 发布链，**不含任何 skill 逻辑**。技能本身由 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 提供。
+命令只声明「命令 → 技能分支」的意图，执行逻辑与唯一真源在对应 skill 里，因此与 opencode 入口、自然语言触发共用同一套实现。本仓不含 skill 逻辑；将来其它 skill 的命令，往 `lib/index.js` 的 `COMMANDS` 表加一行即可。
 
-## 提供的命令
+## 命令
+
+委托给技能执行（需先 `/skill-init`）：
 
 | 命令 | 参数 | 委托的 skill 分支 |
 |---|---|---|
@@ -19,222 +21,67 @@
 | `/git-star-classify` | 无 | git-kit → star-classify |
 | `/handoff` | `[任务范围]` | handoff → print（只打印，不落盘） |
 
-另有三条**本地执行型**命令（不经 agent、不委托 skill），负责把技能装上、软链进 dsh 并保持最新。
-它们的长任务会挂到 dsh 后台任务上，**过程实时可见**（见「[过程可见](#过程可见后台任务)」）：
+本地执行型（不经 agent，负责把技能装上、软链进 dsh 并保持最新）：
 
-| 命令 | 参数 | 行为 | 过程 |
-|---|---|---|---|
-| `/skill-init` | 无 | 检查依赖技能（`git-kit`、`handoff`）：缺失则用 `npx skills` 全局安装并软链进 `$DSH_HOME/skills`；已由 CLI 托管则跳过；存在但来自别处（如本地 clone 的软链）则**替换**为托管链路（真实目录拒绝覆盖） | 作业行显示阶段，面板是 `npx skills` 的流式输出 |
-| `/skill-install` | `<来源> [技能名...]` | 安装**任意来源**的技能（`owner/repo`、git/HTTPS URL 或本地路径，与 `npx skills add` 的来源语法一致）并软链进 dsh；不给技能名则装该来源发现的全部技能 | 同上 |
-| `/skill-update` | `[技能名]` | 把依赖技能重装到上游最新（`npx skills add … -g -a universal -y`）并校验软链仍可解析；未托管/缺失条目只提示、不动 | 同上 |
-
-## 原理（命令 = 意图表）
-
-每条 dsh 命令注册到 `ctx.commands`（`name`/`description`/`input.hint`/`recordInput`/`handler`，即 `CommandDefinition`），出现在 dsh 斜杠菜单。`COMMANDS` 表是**自包含的意图表**：一行声明 = 注册元数据 + 对应的 skill 分支 key（`skill` 省略时默认 `git-kit`），**不读取任何仓库文件**，逻辑与路由唯一真源在各 skill（`SKILL.md` 意图决策树 + `references/` + `scripts/`）。
-
-命令执行时 handler 校验必填输入，然后构造一条 user 消息经 `invocation.agent.followup()` 注入当前会话，由 agent 加载对应 skill（`git-kit` / `handoff`）并落到对应分支执行——交互确认步骤与自然语言触发同一 skill 完全一致。
-
-因为输入已逐字写进这条注入的 user 消息（会话日志的真实事件），全部命令统一注册 `recordInput: false`，避免 `command/run` 再记一份同样的 `args`（dsh 官方指引：命令自身的权威事件已承载 payload 时置 false）。这不影响聊天区的命令行显示——`GenericCommandCard` 只渲染命令名与结算文案，不渲染 `args`。
-
-> **描述文本不做 i18n（有意为之）**：dsh 只本地化它自己的 6 条一方命令——客户端 `HOST_DESCRIPTION_KEYS` 硬编码 `compact`/`export`/`feedback`/`goal`/`permission`/`plan`，且要求 `description` 与英文原文逐字相等才翻译，其余一律**原样透传**；第三方也**无法**用同名客户端 `CommandContribution` 覆盖（同名会在候选合成时 `collides with a host command` 直接抛错），`CommandDecoration` 又**没有** description 字段。Host 侧同样拿不到语言偏好（`SettingsProvider` 只提供 `register()`，namespace `locale` 已被 locale 插件独占、重复注册会抛错；且 `locale.preference` 缺省时本就交给浏览器 `navigator.language` 决定）。因此本插件 12 条描述直接写中文：中文界面下与一方命令表现一致。若将来 dsh 开放第三方描述 i18n 钩子，再改为按键取值。
-
-- 编辑技能（`$DSH_HOME/skills/git-kit/`、`$DSH_HOME/skills/handoff/`）的内容**无需重启**，下次执行即生效——技能由 ai-kit 提供，与本插件版本无关。
-- 修改本插件的 `lib/index.js`（含 `COMMANDS` 表）需重启 dsh web 生效。**但只有以 `link:` 方式接入时改源码才生效**：若 profile 里装的是 npm 版（`dsh plugin --profile web add @morehao/dsh-commands`），profile 下的 `node_modules` 是一份**拷贝**，改仓库源码不会生效，需先升版本发版再重装。
-
-## 技能依赖自举（`lib/skill-setup.js` + `lib/job-progress.js`）
-
-`/skill-init`、`/skill-install`、`/skill-update` 不是「意图表」：它们要判断文件状态、建软链、拉上游，结果必须确定，所以直接在 handler 内执行，不交给 agent。依赖集合仍从 `COMMANDS` 推导（`skill ?? "git-kit"` 去重，导出为 `REQUIRED_SKILLS`），新增委托型命令后这两条自动跟进。
-
-为什么不能只靠 `npx skills`：官方 CLI 支持 80+ agent 但**没有 dsh**，它只能把技能取到自己的 canonical 目录，放进 dsh 技能根必须由插件建软链。实际链路：
-
-```
-npx -y skills@<pin> add morehao/ai-kit --skill <缺的> -g -a universal -y
-   └─ ~/.agents/skills/<name>            # CLI 的 canonical 拷贝 + lock 记录
-        ↑ 软链（本插件创建）
-   ~/.dsh/skills/<name>                  # dsh 扫描的技能根
-```
-
-由上游实现决定、不能改的几个细节：
-
-- **`-a universal` 必须显式给**：不带 `-a` 且没检测到任何 agent 时，`-y` 会把技能装到**全部** agent 目录。`skills update` 内部正是这么 spawn 的，所以 `/skill-update` 也用 `add` 而不是 `update`。
-- **`-a universal -g` 直接落 canonical**：上游对 universal + global 有特例，不会再额外建 `~/.config/agents/skills` 链接。
-- **`add` 只有拷贝语义**（`link` 模式仅 `experimental_sync` 用），canonical 是拷贝：改本地 ai-kit clone 不会自动生效，要 `/skill-update`。
-- **只替换软链，不做备份、不删真实目录**：覆盖旧条目时只 `unlink` 旧**软链**（含悬空软链）——链接指向的目录（你的本地 ai-kit clone）一字不动，要回滚再 `ln -s` 一次即可；遇到同名**真实目录/文件**则直接报错让你自行移走，避免任何不可回滚的删除。（也正因为如此，`skills/` 里不能再出现 `xxx.bak-<时间>` 这种目录：它含 `SKILL.md`，会被当成同名技能扫到。）
-- dsh 同层同名技能按根 rank 取小者（`$DSH_HOME/skills`=400 胜 `~/.agents/skills`=500），软链与 canonical 并存不会产生重复技能；技能根有 watcher，装完免重启。
-- `/skill-install` 不限于插件依赖：装完靠三路取并集决定给谁建软链——用户显式写的技能名、安装前后 canonical 目录的差集、lock 里 source 匹配的技能。
-- 需要 Node.js ≥ 22.20（`skills` 包 engine）与 git/网络。CLI 版本默认 pin（`DSH_COMMANDS_SKILLS_CLI` 可覆盖）；`npx` 找不到时用登录 shell 反查，仍找不到则报错并给出手工命令。
-
-### 过程可见（后台任务）
-
-首次 `/skill-init` 要真下上游（实测 10 秒上下），而 dsh 的命令面**没有进度通道**：
-`@deepseek-ai/dsh-commands` 的 `execute()` 只 append `command/run` 和 `command/done` 两个事件，
-UI 的命令卡片在运行期只能渲染「执行中…」（一方命令 `/compact` 同样如此）。所以"过程"放在
-dsh 的**后台任务**上（`lib/job-progress.js`，用 `ctx.jobs`；base 组合已含 `dsh-jobs-local` + `dsh-tool-jobs`）：
-
-| 面 | 内容 |
-|---|---|
-| 会话头部的作业行 | 实时阶段文案：`检查依赖技能 → 安装 git-kit → 链入 dsh → 校验契约` |
-| 展开的面板 | 阶段流水（`log` 通道）+ `npx skills` 的**流式输出**（去 ANSI 的纯文本，clack 的下载/进度/Done 都在），保留 256 KB，结算后留 16 KB |
-| 行上的停止控件 | 两击停止：先 SIGTERM 再 SIGKILL 子进程，命令卡片结算为「已停止」 |
-| 命令卡片 | 结构化回执（逐技能结论 + 耗时）+ 一行「过程：作业 `skill-init-…`」 |
-
-**无事可做时不建作业**：`/skill-init`、`/skill-update` 会先判定「有没有需要装/修的技能」，没有就直接跑完并
-在回执首行给结论——`✓ 无需操作：git-kit、handoff 均已托管 · 0.0s`，末行写明
-`过程：…没有需要安装或修复的技能，未创建后台任务`。这样不会在会话头部闪一个零输出的空作业行
-（0.1.10 的实测问题：已托管环境下 `/skill-init` 3ms 结束，头部空作业 + 面板空白，看起来像没执行）。
-
-| 场景 | 作业 | 回执首行 |
+| 命令 | 参数 | 作用 |
 |---|---|---|
-| `/skill-init`，技能已托管 | 不建 | `✓ 无需操作：git-kit、handoff 均已托管 · 0.0s` |
-| `/skill-init`，需要装/换软链 | 建 | `技能依赖检查 · git-kit、handoff · 10.4s` |
-| `/skill-install <来源>`，全部已托管 | 建（总要调 CLI） | `✓ 无需操作：<来源> 的 N 个技能均已托管 · 10.2s` |
-| `/skill-install <来源>`，有新装 | 建 | `技能安装 · 来源 <来源> · … · 6.9s` |
+| `/skill-init` | 无 | 检查并安装插件依赖的技能，软链进 dsh |
+| `/skill-install` | `<来源> [技能名...]` | 安装任意来源的技能并软链进 dsh |
+| `/skill-update` | `[技能名]` | 把依赖技能更新到上游最新 |
 
-**为什么不耗 token**：命令 handler 自己 `wait()` 到作业终态，结算时 `awaited` 为真，
-`dsh-tool-jobs` 便跳过完成通知——既不注入消息、也不会唤醒一个模型回合（这一点在冒烟里有断言）。
-反过来若改成"订阅结算事件"收尾，就会走通知路径、可能白开一轮，所以代码里固定用 `wait` 循环。
-
-**降级**：`ctx.jobs` 缺失（headless 组合）、没控制器（未加载 `dsh-tool-jobs`）、并发上限、
-或当前会话没有活 agent 时，命令自动退回原来的「转圈 → 一次性回执」，回执末尾会写「过程：未启用后台任务（原因）」。
-`apply` 不把 `jobs` 写进 `inject`，所以没有 jobs 的组合照常加载。
+长任务会挂到 dsh 后台任务上：会话头部实时显示阶段，面板里是 `npx skills` 的流式输出，可两击停止，且不触发模型回合。详见 [技能自举](./docs/skill-setup.md) 与 [过程可见](./docs/job-progress.md)。
 
 ## 安装
 
 **插件走 npm，技能走软链。**
 
 ```bash
-# 1) 装插件（退出 dsh 客户端后执行，装完再启动）
+# 退出 dsh 客户端后执行，装完再启动
 dsh plugin --profile <profile> add @morehao/dsh-commands
 ```
 
-> **skill 依赖**：插件只声明「命令 → skill 分支」意图表，真正的执行授权给对应 skill（`git-kit` / `handoff`）。而 dsh 不从 `node_modules` 扫描 skill，所以技能必须落在 `$DSH_HOME/skills`（默认 `~/.dsh/skills`）。装完插件后**在 dsh 里执行 `/skill-init` 即可**：它检查依赖技能，缺失就用 `npx skills` 全局安装（`~/.agents/skills`）并软链进 dsh 技能根，已托管则跳过；之后用 `/skill-update` 跟上游。
+装完在 dsh 里执行 `/skill-init`：检查 `git-kit` / `handoff`，缺失则用 `npx skills` 全局安装并软链进 `$DSH_HOME/skills`（默认 `~/.dsh/skills`），已托管则跳过；之后用 `/skill-update` 跟上游。
 
-不想让插件动你的 home 时，也可以手工准备（技能由 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 提供）：
+装好后直接输入 `/` 选择命令，例如 `/git-message 修复登录超时`、`/git-commit-push`、`/handoff`。
 
-```bash
-git clone https://github.com/morehao/ai-kit.git
-mkdir -p "$HOME/.dsh/skills" && ln -s "$PWD/ai-kit/skills"/* "$HOME/.dsh/skills/"
-```
+手工准备技能、可达镜像与环境变量的说明见 [技能自举](./docs/skill-setup.md)；`link:` 本地开发见 [开发与测试](./docs/development.md)。
 
-手工软链指向你的本地 clone（改本地文件即时生效），但不归 `npx skills` 托管，`/skill-update` 不会更新它；下次跑 `/skill-init` 会把它**替换**成托管软链——只删那条链接，你的 clone 一个字节都不动，想恢复再 `ln -s` 一次即可。
+## 原理
 
-本地开发 / 测试用 `link:` 方式（源码即时生效，不依赖 npm 版本）：
+每条命令注册到 `ctx.commands`。执行时 handler 校验必填输入，构造一条 user 消息经 `invocation.agent.followup()` 注入当前会话，由 agent 加载对应 skill、按对应分支执行——交互确认步骤与自然语言触发完全一致。`COMMANDS` 表自包含，不读取任何仓库文件。
 
-```bash
-dsh plugin --profile <profile> add link:/绝对路径/dsh-commands
-# 重启 dsh web
-```
+- 编辑技能内容（`$DSH_HOME/skills/...`）**无需重启**，下次执行即生效。
+- 修改插件源码（含 `COMMANDS` 表）需重启 dsh web；只有以 `link:` 方式接入时才改源码即生效，npm 版是拷贝。
+- 命令描述直接写中文：dsh 目前不向第三方提供描述文本的 i18n 钩子。
 
-## 典型用法（针对 ai-kit）
-
-[`morehao/ai-kit`](https://github.com/morehao/ai-kit) 现提供 6 个技能：`git-kit`、`handoff`（插件依赖，由 `/skill-init` 管）与 `project-insight`、`project-wiki`、`svg-maker`、`tech-design`（按需 `/skill-install`）。以下示例需要 **v0.1.9+**（三个命令是这一版新增的）；运行期的作业行/流式输出需要 **v0.1.10+**。
-
-### `/skill-init`：只装插件依赖的两个
-
-```
-/skill-init
-```
-
-| 现状 | 行为 |
-|---|---|
-| `~/.dsh/skills` 里没有 | 安装 `git-kit`、`handoff` → 软链 `~/.dsh/skills/*` → `~/.agents/skills/*` |
-| 已手工 `git clone ai-kit && ln -s` | 判定为"非托管软链" → **替换**软链，clone 目录不动 |
-| 已经是托管软链 | 跳过，且**不再调用 CLI** |
-| 同名位置是真实目录 | 该技能报"拒绝覆盖"，其余照常 |
-
-顺带校验分支契约（`git-kit` 的 9 个分支文件是否齐），结束提示"无需重启 dsh"。
-
-### `/skill-install <来源> [技能名...]`：装 ai-kit 的其余技能
-
-```
-/skill-install morehao/ai-kit tech-design                                        # 单个
-/skill-install morehao/ai-kit project-insight project-wiki svg-maker            # 多个
-/skill-install morehao/ai-kit                                                   # 全部（已托管的自动跳过）
-/skill-install ~/practice/ai/ai-kit/skills/svg-maker                            # 本地路径（装的是拷贝）
-```
-
-| 想要的能力 | 命令 |
-|---|---|
-| 写技术方案 / 设计文档 | `/skill-install morehao/ai-kit tech-design` |
-| 解读开源项目（带源码行号引用） | `/skill-install morehao/ai-kit project-insight` |
-| 给项目生成可读 Wiki | `/skill-install morehao/ai-kit project-wiki` |
-| 生成独立 SVG 架构图 | `/skill-install morehao/ai-kit svg-maker` |
-
-装完即可用，无需重启。
-
-### `/skill-update [技能名...]`：更新依赖技能
-
-```
-/skill-update            # 重装 git-kit + handoff 到上游最新
-/skill-update git-kit    # 只更新一个
-```
-
-候选集只来自 `COMMANDS` 的依赖（`git-kit`、`handoff`），`/skill-update svg-maker` 会报「未知技能」。用 `/skill-install` 装进来的额外技能用以下任一方式更新：
-
-```
-/skill-install morehao/ai-kit tech-design          # 重装即更新（推荐）
-npx -y skills@1.7.4 update tech-design -g -y       # 绕过插件，用上游 hash 比对
-```
-
-### 常见组合
-
-```bash
-# ① 新机器一次配齐
-/skill-init
-/skill-install morehao/ai-kit project-insight project-wiki svg-maker tech-design
-
-# ② ai-kit 发新版后
-/skill-update
-/skill-install morehao/ai-kit project-insight project-wiki svg-maker tech-design
-
-# ③ 边改 ai-kit 边用：想保持改完立刻生效就别跑 /skill-init（手工 ln -s 到 clone）；
-#    已切成托管链路后想恢复本地编辑，只换链接、不动文件：
-ln -sfn ~/practice/ai/ai-kit/skills/git-kit ~/.dsh/skills/git-kit
-```
-
-## 显示元信息（插件页标题 / 描述 / 图标）
-
-dsh 的插件页（侧栏「插件」→ 组合包详情与组件行）在**不加载插件 JS** 的前提下读取展示元信息：
-
-- 标题与描述取自导出的 `locale/<语言>.json` 的 `meta.title` / `meta.description`（本包提供 `en` 与 `zh`，随界面语言切换）。
-- 图标取自 `package.json` 的 `icon`（优先）或导出的 `./icon`；格式限 SVG/PNG/JPEG/WebP，且不超过 256 KiB。
-- 这些资源必须同时写进 `exports` 与 `files`；`package.json` 也要导出（`"./package.json": "./package.json"`）。否则「缺 locale 时回退到 package.json 的 `name`/`description`」这条兜底会因 `ERR_PACKAGE_PATH_NOT_EXPORTED` 静默失效：标题退化成模块名、描述为空，组件行还会多出一行与标题重复的包名。这正是本插件此前与 `dsh-context` 等信息完整的插件在页面上出现差异的原因。
-
-> 标题表达「这个插件是什么」（`dsh 命令集 (dsh-commands)`），不表达「它从哪个仓来」——所以标题里**不写仓名**；「技能由 ai-kit 仓提供」只写在 `description` 末尾。
+注入消息与 `recordInput`、i18n 的完整依据、`handoff` 的 `readFallback`、插件页元信息，见 [架构与原理](./docs/architecture.md)。
 
 ## 开发
 
-- 增删命令：改 `lib/index.js` 的 `COMMANDS` 表即可（每条一行声明）；`branch` 值必须与对应 `SKILL.md` 决策树的分支 key 一致（`skill` 省略时默认 `git-kit`）。
-- 命令与 ai-kit 里 opencode 侧 `commands-opencode/git/*.md`、`commands-opencode/handoff.md` 是同一 skill 的多条入口，只声明意图、不重复逻辑。
-- **跨仓契约**：命令 → 技能分支的对应关系已跨仓（技能在 ai-kit），改动 `COMMANDS` 或技能分支后跑一次
+```bash
+node scripts/check-skill-contract.mjs   # 命令 → 技能分支的跨仓契约（需技能已安装）
+node scripts/smoke-skill-setup.mjs      # 技能自举 + 过程可见（stub，不联网）
+```
 
-  ```bash
-  node scripts/check-skill-contract.mjs
-  ```
+CI 在 PR 上校验脚本语法、三处命名一致、打包白名单与技能自举冒烟。扩展命令、测试细节与命名约定见 [开发与测试](./docs/development.md)。
 
-  它逐条检查 `$DSH_HOME/skills/<skill>/references/<branch>.md` 是否存在（单分支技能只校验 `SKILL.md` 存在，如 `/handoff` 的 `print`）。技能改分支名而插件没跟，就是在这里暴露的。
-- `/skill-init`、`/skill-install`、`/skill-update` 的改动跑 `node scripts/smoke-skill-setup.mjs`：它用 `DSH_COMMANDS_SKILL_CLI` 指向一个 stub 顶替 `npx skills`，在临时 HOME 里覆盖「缺失→装+软链 / 已托管→跳过 / 非托管软链→替换 / 真实目录→拒绝覆盖 / 任意来源安装 / 更新」六条路径，不联网、不碰真实 `~/.dsh`。
-- 过程可见（`lib/job-progress.js`）的改动也在同一条冒烟里：它用一个**假 jobs 注册表**断言「只启动一个作业 / kind·owner·label 透传 / 阶段文案刷新 / CLI 输出流入面板 / 结算前已 `wait`（awaited，不投通知）/ 结果带回作业视图 / 作业被停止返回 killed / 取消只 kill 不抢跑 / jobs 缺失与无控制器降级 / 失败回执剥框线 / `apply()` 注册的 handler 端到端跑通（13 条命令、回执带作业 id）」，共 51 项断言。改动前先读该文件顶部注释：它记录了「为什么只能用 `wait` 收尾」以及 dsh 侧的行号证据。
-- CI（`.github/workflows/check.yml`）在 PR 上机械校验：发布脚本语法、插件语法（含 `lib/skill-setup.js`）、包名/模块标识符/插件名三处一致、打包内容白名单、技能自举冒烟。契约校验默认不在 CI 跑（它依赖另一仓的技能目录）。
+## 发布
 
-## 发布（自动）
+升 `package.json` 版本 → PR 合并 → 在合并后的 `main` 打 `vX.Y.Z` tag，GitHub Actions 用 OIDC 自动发布到 npm（无需长效 token）。workflow 会校验 tag 版本与包版本一致；npm 上已存在同版本则跳过（幂等）。
 
-用**打 tag** 自动发布到 npm（OIDC / Trusted Publishing，无需长效 token；见 `.github/workflows/release.yml`；完整流程与踩坑见 [`PUBLISHING.md`](./PUBLISHING.md)）：
+合并之后推荐用 `/git-release` 完成打 tag、创建 Release 与后效校验；只想打标签、不建 Release 用 `/git-tag`。完整流程、一次性配置与踩坑见 [发布说明](./docs/publishing.md)。
 
-- **推荐用 `/git-release`**（git-kit 的 `release` 分支）完成「合并之后」那一步：只读预检 → 一次确认 → 打注记 tag → **默认创建 GitHub Release** → 按仓库探测跟踪后效（本仓是 `release.yml` + npm）并出校验回执。本仓 CI 只发 npm、不建 Release，所以 Release 由这条流程补建；只想打标签、不建 Release 就用 `/git-tag`。
-- 发布方式：升好版本后打 tag 并推送，workflow 用 OIDC 把该版本发布到 npmjs（手工等价操作）：
+## 文档
 
-  ```bash
-  # 1) 升版本：改本仓 package.json 的 version（如 0.1.8 -> 0.1.9），在分支上提交并 push，开 PR 合并到 main
-  #    （稳定分支不接受直接提交，发版升版本也不例外；见 ai-kit 的 skills/git-kit/references/stable-branch.md）
-  # 2) 合并后切回 main 拉取，再打与版本一致的 tag（去掉 v 前缀，指向合并后的提交）：
-  #    git switch main && git pull --ff-only origin main
-  #    git tag -a v0.1.9 -m "release: v0.1.9" origin/main && git push origin v0.1.9
-  ```
+| 文档 | 内容 |
+|---|---|
+| [架构与原理](./docs/architecture.md) | 意图表、执行链路、i18n 与记录策略、生效条件、展示元信息 |
+| [技能自举](./docs/skill-setup.md) | `/skill-init` / `/skill-install` / `/skill-update`、软链模型、环境变量、典型用法 |
+| [过程可见](./docs/job-progress.md) | 后台任务、作业面板、无事可做、降级 |
+| [开发与测试](./docs/development.md) | 目录、扩展命令、契约校验、冒烟、CI、命名约定 |
+| [发布说明](./docs/publishing.md) | npm OIDC 发布、一次性配置、排障 |
+| [历史](./docs/history.md) | 从 ai-kit 拆仓的记录 |
 
-  workflow 会校验 `tag 版本 == package.json version`（不一致拒绝发布）；同版本在 npm 已存在则跳过（幂等）。细则见 [`PUBLISHING.md`](./PUBLISHING.md)「日常发新版」与 ai-kit 的 `skills/git-kit/references/tag.md`「发版约束」。
-- **关键约定**：`package.json` 的 `name`（npm 包名）与 `cordis.patch.yml` 的 `insert[0].name`（dsh 启动时 `import()` 的**模块标识符**）必须一致；`lib/index.js` 的 `export const name`（cordis 插件名）与 `cordis.patch.yml` 的 `insert[0].id` 保持一致即可，但与模块标识符解耦。改包名时请三者同步核对（CI 里有机械校验）。
+## 许可
 
-## 历史
-
-本包源码原在 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 的 `commands-dsh/` 目录（`v0.1.0`–`v0.1.7` 由其发布），2026-10 拆分为独立仓以便独立安装与发布；npm 包名不变，已装用户无迁移成本。旧目录提交历史见 [ai-kit/commits/main/commands-dsh](https://github.com/morehao/ai-kit/commits/main/commands-dsh)。
+[MIT](./LICENSE)
