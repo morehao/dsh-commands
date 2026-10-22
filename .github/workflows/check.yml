@@ -30,6 +30,7 @@ jobs:
         run: |
           node --check lib/index.js
           node --check lib/skill-setup.js
+          node --check lib/job-progress.js
           node --check scripts/smoke-skill-setup.mjs
 
       - name: 三处命名一致（包名 / 模块标识符 / 插件名）
