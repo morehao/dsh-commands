@@ -4,19 +4,6 @@
 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 的 `commands-dsh/` 目录发布，
 2026-10 起在本仓发布；npm 包名未变，版本号连续。
 
-## 未发布
-
-### 变更
-
-- 对齐 ai-kit `git-kit` 的 release 流程（ai-kit #41 / #43）：`/git-release` 的描述改为「打 tag → 默认建平台
-  Release → 按仓库探测跟踪后效（流水 / 产物）并出校验回执」，并补 `hint: "[版本号或tag]"`（原先无参数提示，
-  看不出可带版本）；`locale` 里的「发版验证」改为「发版（打 tag、建平台 Release、校验后效）」。
-- README「发布（自动）」补 `/git-release` 推荐路径：本仓 CI 只发 npm、不建 Release，Release 由该流程默认补建，
-  只打标签用 `/git-tag`；命令表同步 `/git-release` 的新参数。
-- PUBLISHING「日常发新版」：`STATE` 词表更新为 `READY / TAGGED / NEEDS_TARGET / BLOCKED`（`NEEDS_TAG` 已在
-  ai-kit #43 改名，含义是「先定目标版本」而非向用户要 tag），补版本源「读仓库判定 + `--version-file` 回查」
-  与产物校验（`--npm-pkg` / `--probe-url`），并把命令名统一为本仓的 `/git-release`、`/git-commit-push` 等。
-
 ## 0.1.9
 
 ### 新增
@@ -42,6 +29,14 @@
 
 - README「安装」：安装技能从"手工 clone + ln"改为推荐 `/skill-init`（手工方式保留为离线/自管场景），
   并补充技能托管链路、"只替换软链、真实目录拒绝覆盖"的覆盖策略与 `-a universal` 等不可改的上游约束。
+- 对齐 ai-kit `git-kit` 的 release 流程（ai-kit #41 / #43）：`/git-release` 的描述改为「打 tag → 默认建平台
+  Release → 按仓库探测跟踪后效（流水 / 产物）并出校验回执」，并补 `hint: "[版本号或tag]"`（原先无参数提示，
+  看不出可带版本）；`locale` 里的「发版验证」改为「发版（打 tag、建平台 Release、校验后效）」。
+- README「发布（自动）」补 `/git-release` 推荐路径：本仓 CI 只发 npm、不建 Release，Release 由该流程默认补建，
+  只打标签用 `/git-tag`；命令表同步 `/git-release` 的新参数。
+- PUBLISHING「日常发新版」：`STATE` 词表更新为 `READY / TAGGED / NEEDS_TARGET / BLOCKED`（`NEEDS_TAG` 已在
+  ai-kit #43 改名，含义是「先定目标版本」而非向用户要 tag），补版本源「读仓库判定 + `--version-file` 回查」
+  与产物校验（`--npm-pkg` / `--probe-url`），并把命令名统一为本仓的 `/git-release`、`/git-commit-push` 等。
 
 ## 0.1.8
 
