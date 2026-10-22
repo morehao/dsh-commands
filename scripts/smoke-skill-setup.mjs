@@ -17,12 +17,25 @@ import { join } from "node:path";
 // stub：把 --skill 指定的技能（不指定时模拟"该来源的两个技能"）写到 $HOME/.agents/skills/<name>/，
 // 记录调用行，并写一份 lock（模拟上游行为，用来覆盖 lock 匹配路径）。
 const STUB = `#!/usr/bin/env node
+import { writeSync } from "node:fs";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 const argv = process.argv.slice(2);
 await appendFile(process.env.STUB_LOG, JSON.stringify(argv) + "\\n");
+if (process.env.STUB_ENV_LOG) {
+	await appendFile(process.env.STUB_ENV_LOG, JSON.stringify({ cloneTimeout: process.env.SKILLS_CLONE_TIMEOUT_MS ?? null }) + "\\n");
+}
+if (process.env.STUB_NOISE === "1") {
+	// writeSync：一次写 5 KB 的 spinner 必须先落盘再 exit，否则管道里的缓冲会被丢掉
+	let noisy = "███████╗██╗  ██╗██╗██╗     ██╗     ███████╗\\n";
+	noisy += "╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚══════╝\\n";
+	for (let i = 0; i < 200; i += 1) noisy += "◒  Cloning repository" + ".".repeat(i % 4) + "…\\r";
+	noisy += "\\nFailed to connect to github.com port 443 after 75002 ms: Couldn't connect to server\\n";
+	writeSync(1, noisy);
+	process.exit(1);
+}
 if (process.env.STUB_FAIL === "1") {
 	process.stdout.write("╭──────────────────────╮\\n│   resolving source   │\\n╰──────────────────────╯\\n─────\\n");
 	process.stderr.write("[stub] registry unreachable\\n");
@@ -67,6 +80,7 @@ const home = join(root, "home");
 const dshHome = join(root, "dsh");
 const localClone = join(root, "ai-kit-clone");
 const stubLog = join(root, "stub.log");
+const stubEnvLog = join(root, "stub-env.log");
 
 try {
 	await mkdir(join(home, ".agents"), { recursive: true });
@@ -83,10 +97,16 @@ try {
 	process.env.DSH_HOME = dshHome;
 	process.env.DSH_COMMANDS_SKILL_CLI = stub;
 	process.env.STUB_LOG = stubLog;
+	process.env.STUB_ENV_LOG = stubEnvLog;
 	process.env.DSH_COMMANDS_SKILL_TIMEOUT_MS = "60000";
 
-	const { runSkillInit, runSkillUpdate } = await import("../lib/skill-setup.js");
+	const { runSkillInit, runSkillUpdate, resolveSkillSource } = await import("../lib/skill-setup.js");
 	const { COMMANDS } = await import("../lib/index.js");
+	check(resolveSkillSource({}) === "morehao/ai-kit", "来源：默认 morehao/ai-kit");
+	check(
+		resolveSkillSource({ DSH_COMMANDS_SKILL_SOURCE: "acme/mirror" }) === "acme/mirror",
+		"来源：DSH_COMMANDS_SKILL_SOURCE 可覆盖（镜像/本地目录逃生口）",
+	);
 
 	const canonical = (name) => join(home, ".agents", "skills", name);
 	const linkPath = (name) => join(dshHome, "skills", name);
@@ -117,6 +137,12 @@ try {
 		argv0.filter((arg) => arg === "--skill").length === 2,
 		"init：只为缺失技能传 --skill",
 		JSON.stringify(argv0),
+	);
+	const cliEnv = JSON.parse((await readFile(stubEnvLog, "utf8")).trim().split("\\n").pop());
+	check(
+		cliEnv.cloneTimeout === "30000",
+		"cli：克隆超时比外层硬超时早 30s（60000 → 30000），避免被 SIGKILL 截断诊断",
+		JSON.stringify(cliEnv),
 	);
 
 	// ---- 2) 已托管 → 跳过且不调 CLI -----------------------------------------
@@ -416,6 +442,30 @@ try {
 	const failureText = cliFailure === null ? "" : String(cliFailure.message);
 	check(failureText.includes("registry unreachable"), "失败回执：保留真正的错误行", failureText);
 	check(failureText.length > 0 && !/[│╭╰─]/.test(failureText), "失败回执：框线/装饰线被剥掉", failureText);
+
+	// 失败回执：clack 的 \\r 重绘 + ASCII logo 不能把卡片撑成几十 KB
+	process.env.STUB_NOISE = "1";
+	let noisyFailure = null;
+	try {
+		await runSkillUpdate(COMMANDS, "", {});
+	} catch (error) {
+		noisyFailure = error;
+	}
+	delete process.env.STUB_NOISE;
+	const noisyText = noisyFailure === null ? "" : String(noisyFailure.message);
+	check(noisyText.includes("Couldn't connect to server"), "失败回执：保留最后的网络错误行", noisyText);
+	check(
+		noisyText.length < 1_200,
+		"失败回执：spinner 重绘被折叠（卡片不再爆长）",
+		`${noisyText.length} 字符：${noisyText.slice(0, 200)}`,
+	);
+	check(
+		(noisyText.match(/Cloning repository/g) ?? []).length === 1,
+		"失败回执：重复的克隆进度只留一条",
+		noisyText,
+	);
+	check(noisyText.includes("网络提示"), "失败回执：网络不可达时给出代理/镜像提示", noisyText);
+	check(!/[█╗╚╔]/.test(noisyText), "失败回执：ASCII logo 被剥掉", noisyText);
 	// ---- 9) 端到端：apply() 注册的 handler 真的把命令挂到作业上 ------------
 	const { apply } = await import("../lib/index.js");
 	const registered = new Map();

@@ -51,9 +51,9 @@
 >
 > **合并之后那一步用 `/git-release`**（git-kit 的 `release` 分支）：它只做 `pr-merge` 之后的部分——只读预检 → 一次计划卡确认 → 打注记 tag → **默认创建 GitHub Release**（body 复用同一份变更说明；CI 已建则只校验）→ 逐个跟踪其他后效并出回执。它不改版本号、不开无关 PR；可选「写 `CHANGELOG.md`」——选了就为这个文件开 `docs/changelog-<tag>` 分支走一次 PR，且必须在打 tag 前合入（不选则完全不碰工作区）。`STATE` 四个值：`READY` 直接进计划卡；`TAGGED` 表示 tag 已在（重跑会补建缺失的 Release 或只做校验）；`NEEDS_TARGET` 表示这次发哪个版本还没定——先读仓库确认版本源，再带版本重跑，**不是**问你要 tag；`BLOCKED` 表示有阻断项（版本没领先 tag / tag 不在主干 / `tag-version-mismatch` 等），按 `BLOCKERS` 处理——多数情况先走升版本 PR。版本源是**读仓库得出的判断**（本仓就是根 `package.json` 的 `version`，回查用 `--version <v> --version-file package.json`），git-kit 不内置清单表，也不假定仓库发 npm。手动 `git tag` 仍有效，两者共用同一份 `tag.md`「发版约束」。
 >
-> **后效按仓库探测，不写死**：git-kit 会探测本仓 tag 触发了哪些 workflow、是否发 npm、是否由 CI 建 Release，再逐个校验。本仓的后效是「`release.yml` + npm」，Release 则由流程默认创建（CI 不建），所以回执里会有 Release 行、workflow 行与 npm 行（npm 用 `--npm-pkg @morehao/dsh-commands` 别名，其他产物有公开地址就传 `--probe-url`）；换成 Go/容器/静态站仓库，同一流程只会报告它实际探测到的部分。
+> **后效按仓库探测，不写死**：git-kit 会探测本仓 tag 触发了哪些 workflow、是否发 npm、是否由 CI 建 Release，再逐个校验。本仓的后效是「`release.yml` + npm」，Release 则由流程默认创建（CI 不建），所以回执里会有 Release 行、workflow 行与 npm 行（npm 用 `--npm-pkg @morehao/dsh-commands` 别名，其他产物有公开地址就传 `--probe-url`）；换成 Go/容器/静态站仓库，同一流程只会报告它实际探测到的部分。只想打标签、不建 Release 就用 `/git-tag`。
 
-1. **升版本**：改本仓 `package.json` 的 `version`（如 `0.1.8` → `0.2.0`），如有需要同步 `README.md` / `CHANGELOG.md`；**在分支上提交**并 push，再开 PR 合并到 `main`（`/git-commit-push` → `/git-pr-create` → `/git-pr-merge`）。
+1. **升版本**：改本仓 `package.json` 的 `version`（如 `0.1.8` → `0.2.0`），如有需要同步 `README.md` / `docs/` / `CHANGELOG.md`；**在分支上提交**并 push，再开 PR 合并到 `main`（`/git-commit-push` → `/git-pr-create` → `/git-pr-merge`）。
 2. **打 tag**（在**合并后**的 `main` 最新提交上打；去掉 `v` 前缀，与 package.json 版本一致）：
    ```bash
    git switch main && git pull --ff-only origin main
