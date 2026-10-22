@@ -1,0 +1,47 @@
+{
+  "name": "@morehao/dsh-commands",
+  "version": "0.1.8",
+  "description": "把 ai-kit 的 git-kit Git 工作流与 handoff 跨会话交接以 dsh 原生斜杠命令接入（薄意图表，委托对应 skill 执行）",
+  "icon": "icon.svg",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "license": "MIT",
+  "author": "morehao <morehao@qq.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/morehao/dsh-commands.git"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "dsh-command",
+    "git",
+    "git-kit",
+    "handoff",
+    "conventional-commits"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

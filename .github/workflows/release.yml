@@ -1,0 +1,49 @@
+# 自动发布 workflow（Trusted Publishing / OIDC，**tag 触发**）：
+#   推送 vX.Y.Z 标签时，从 tag 读取版本，经 OIDC 把 @morehao/dsh-commands 发布到 npmjs。
+# 认证：OIDC，**不需要 NPM_TOKEN**（job 提 id-token: write，npm CLI 自动换取短时令牌）。
+#
+#   npm 侧一次性前置（建包时已完成）：
+#     1) 包需已存在 —— 用 `npx setup-npm-trusted-publish @morehao/dsh-commands` 发占位包建出来；
+#     2) 到 https://www.npmjs.com/package/@morehao/dsh-commands/access 配置 Trusted Publisher：
+#        - 提供者 GitHub Actions；Owner=morehao；Repository=dsh-commands
+#          （迁仓前是 ai-kit；npm 侧一个包只能配一个可信发布者，切换后旧仓的 tag 发布会因 OIDC 被拒而失败）；
+#        - Workflow=release.yml（**且本 workflow 的 name: 也必须等于 release.yml**，这样 OIDC 的
+#          workflow claim 才是 release.yml，才与 npm 侧精确匹配）；
+#        - **Allowed actions 必须允许 `npm publish`（直接发布）**——2026-09-03 后新建的 Trusted Publisher
+#          默认只允许 `npm stage publish`，会导致 OIDC 直接发布被拒为「permission denied」。
+#
+# 版本约定：发布版本 = 去掉 tag 前缀 v（v1.2.3 -> 1.2.3），且必须与 package.json.version 一致（本仓根即包根）
+#   （脚本会校验，不一致拒绝发布）。npm 上同版本已存在则跳过（幂等）。
+name: release.yml
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # 必须：OIDC 可信发布
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Publish to npm via OIDC
+        run: bash ./scripts/ci-publish.sh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
