@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "DSH Commands (dsh-commands)",
+    "description": "Adds git-kit Git workflows and handoff session transfer to DSH as native slash commands (skills are provided by the ai-kit repo): commit message, commit and push, branch, PR/MR create and merge, tag, post-merge release verification, repository slimming, star classification, and a copy-paste resume prompt for a new session."
+  }
+}

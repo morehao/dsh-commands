@@ -1,0 +1,36 @@
+name: check
+
+# 最小 CI：不构建、不装依赖、不跑测试（本仓没有构建产物也没有测试）。
+# 目标是把「只有真正发版时才会暴露」的机械错误前移到 PR —— 发布是 tag 触发、tag 推上去就不可改，
+# 失败只能事后发现（v0.1.6 就是实例：tag 已推、run 失败，只能补发）。
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  check:
+    name: Pre-publish checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 发布脚本语法
+        run: bash -n scripts/ci-publish.sh
+
+      - name: 插件语法
+        run: node --check lib/index.js
+
+      - name: 三处命名一致（包名 / 模块标识符 / 插件名）
+        run: node scripts/check-naming.mjs
+
+      - name: 打包内容白名单
+        run: node scripts/check-pack.mjs

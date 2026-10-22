@@ -1,0 +1,6 @@
+# dsh-commands profile bundle patch：把插件注册进配置树。
+# `name` 是 dsh 启动时用于 import() 的**模块标识符**，必须与 npm 包名一致（scoped）。
+# `id` 是 cordis 配置树内的键，与插件导出的 cordis 插件名保持一致（dsh-commands）。
+- insert:
+    - id: dsh-commands
+      name: '@morehao/dsh-commands'

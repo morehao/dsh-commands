@@ -1,0 +1,11 @@
+# OS files
+.DS_Store
+
+# 本地草稿 / 过程性文档（specs、plans、notes），不入库
+.dsh/
+
+# 依赖
+node_modules/
+
+# npm pack 产物（本地跑 `npm pack` 会生成，别提交）
+*.tgz
