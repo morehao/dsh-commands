@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // /skill-init 与 /skill-update 的行为冒烟测试：不联网、不碰真实 HOME。
 //
-// 用 DSH_COMMANDS_SKILL_CLI 指向一个 stub 可执行文件来顶替 `npx skills`，覆盖六条路径：
+// 用 DSH_COMMANDS_SKILL_CLI_OVERRIDE 指向一个 stub 可执行文件来顶替 `npx skills`，覆盖六条路径：
 //   1) missing            → 安装 + 软链进 $DSH_HOME/skills
 //   2) 再跑一次（managed） → 跳过，且不再调用 CLI
 //   3) unmanaged（本地 clone 软链）→ 替换为托管软链（本地 clone 不受影响）
@@ -107,7 +107,7 @@ try {
 	// 改 process.env 即可把它们指向临时目录（不触碰真实 ~/.dsh、~/.agents）。
 	process.env.HOME = home;
 	process.env.DSH_HOME = dshHome;
-	process.env.DSH_COMMANDS_SKILL_CLI = stub;
+	process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE = stub;
 	process.env.STUB_LOG = stubLog;
 	process.env.STUB_ENV_LOG = stubEnvLog;
 	process.env.DSH_COMMANDS_SKILL_TIMEOUT_MS = "60000";
@@ -120,6 +120,7 @@ try {
 		probeUrlForSource,
 		probeSourceReachability,
 		jobSkipReason,
+		planSkillOperation,
 	} = await import("../lib/skill-setup.js");
 	const { COMMANDS } = await import("../lib/index.js");
 	check(resolveSkillSource({}) === "morehao/ai-kit", "来源：默认 morehao/ai-kit");
@@ -278,9 +279,9 @@ try {
 
 	// 连不上来源：不启动 CLI，几秒内给出可操作错误（用本机 1 端口模拟网络不通）
 	if (spawnSync("git", ["--version"], { stdio: "ignore" }).status === 0) {
-		const savedCli = process.env.DSH_COMMANDS_SKILL_CLI;
+		const savedCli = process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE;
 		const savedProbe = process.env.DSH_COMMANDS_SKILL_PROBE_MS;
-		delete process.env.DSH_COMMANDS_SKILL_CLI;
+		delete process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE;
 		process.env.DSH_COMMANDS_SKILL_PROBE_MS = "2000";
 		let unreachableError = "";
 		const probeStartedAt = Date.now();
@@ -290,8 +291,8 @@ try {
 			unreachableError = String(error.message);
 		}
 		const probeElapsed = Date.now() - probeStartedAt;
-		if (savedCli === undefined) delete process.env.DSH_COMMANDS_SKILL_CLI;
-		else process.env.DSH_COMMANDS_SKILL_CLI = savedCli;
+		if (savedCli === undefined) delete process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE;
+		else process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE = savedCli;
 		if (savedProbe === undefined) delete process.env.DSH_COMMANDS_SKILL_PROBE_MS;
 		else process.env.DSH_COMMANDS_SKILL_PROBE_MS = savedProbe;
 		check(
@@ -327,6 +328,16 @@ try {
 		"install：已托管的显式技能不建作业（jobSkipReason）",
 		String(installSkip),
 	);
+
+	// 旧变量名只差一个 S：保留 fallback，避免已配置的用户升级后静默失效。
+	const savedOverride = process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE;
+	delete process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE;
+	process.env.DSH_COMMANDS_SKILL_CLI = stub;
+	const legacyPlan = await planSkillOperation("skill-install", COMMANDS, "acme/toolkit tech-design");
+	check(legacyPlan.freshness.cacheSource === false, "env：旧 CLI 变量名仍被识别（fallback）", JSON.stringify(legacyPlan.freshness));
+	if (savedOverride === undefined) delete process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE;
+	else process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE = savedOverride;
+	delete process.env.DSH_COMMANDS_SKILL_CLI;
 
 	// 装"全部"：CLI 未收到 --skill，靠 canonical 目录 diff 找出新技能；
 	// 同时把 demo-a 预先做成真实目录，验证 install 也拒绝覆盖真实目录。
