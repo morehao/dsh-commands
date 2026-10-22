@@ -323,7 +323,7 @@ try {
 	check((await stubCalls()) === callsBeforeInstall + 1, "install：只调用一次 CLI");
 	const installSkip = await jobSkipReason("skill-install", COMMANDS, "acme/toolkit tech-design");
 	check(
-		typeof installSkip === "string" && installSkip.includes("tech-design"),
+		typeof installSkip === "string" && installSkip.includes("托管"),
 		"install：已托管的显式技能不建作业（jobSkipReason）",
 		String(installSkip),
 	);
