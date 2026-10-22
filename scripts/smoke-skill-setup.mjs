@@ -11,6 +11,7 @@
 // 另外校验：全程不产生 skills-backup/ 之类的备份目录（设计上不做备份）。
 import { mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -25,13 +26,24 @@ import { join } from "node:path";
 const argv = process.argv.slice(2);
 await appendFile(process.env.STUB_LOG, JSON.stringify(argv) + "\\n");
 if (process.env.STUB_ENV_LOG) {
-	await appendFile(process.env.STUB_ENV_LOG, JSON.stringify({ cloneTimeout: process.env.SKILLS_CLONE_TIMEOUT_MS ?? null }) + "\\n");
+	await appendFile(process.env.STUB_ENV_LOG, JSON.stringify({
+		cloneTimeout: process.env.SKILLS_CLONE_TIMEOUT_MS ?? null,
+		gitPrompt: process.env.GIT_TERMINAL_PROMPT ?? null,
+	}) + "\\n");
+}
+if (process.env.STUB_HANG === "1") {
+	setInterval(() => {}, 1000);
+	await new Promise(() => {});
+}
+if (process.env.STUB_SLEEP_MS) {
+	await new Promise((resolve) => setTimeout(resolve, Number(process.env.STUB_SLEEP_MS)));
 }
 if (process.env.STUB_NOISE === "1") {
 	// writeSync：一次写 5 KB 的 spinner 必须先落盘再 exit，否则管道里的缓冲会被丢掉
 	let noisy = "███████╗██╗  ██╗██╗██╗     ██╗     ███████╗\\n";
 	noisy += "╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚══════╝\\n";
-	for (let i = 0; i < 200; i += 1) noisy += "◒  Cloning repository" + ".".repeat(i % 4) + "…\\r";
+	const glyphs = ["◒", "◐", "◓", "◑"];
+	for (let i = 0; i < 200; i += 1) noisy += glyphs[i % glyphs.length] + "  Cloning repository" + ".".repeat(i % 4) + "…\\r";
 	noisy += "\\nFailed to connect to github.com port 443 after 75002 ms: Couldn't connect to server\\n";
 	writeSync(1, noisy);
 	process.exit(1);
@@ -100,12 +112,68 @@ try {
 	process.env.STUB_ENV_LOG = stubEnvLog;
 	process.env.DSH_COMMANDS_SKILL_TIMEOUT_MS = "60000";
 
-	const { runSkillInit, runSkillUpdate, resolveSkillSource } = await import("../lib/skill-setup.js");
+	const {
+		runSkillInit,
+		runSkillInstall,
+		runSkillUpdate,
+		resolveSkillSource,
+		probeUrlForSource,
+		probeSourceReachability,
+		jobSkipReason,
+	} = await import("../lib/skill-setup.js");
 	const { COMMANDS } = await import("../lib/index.js");
 	check(resolveSkillSource({}) === "morehao/ai-kit", "来源：默认 morehao/ai-kit");
 	check(
 		resolveSkillSource({ DSH_COMMANDS_SKILL_SOURCE: "acme/mirror" }) === "acme/mirror",
 		"来源：DSH_COMMANDS_SKILL_SOURCE 可覆盖（镜像/本地目录逃生口）",
+	);
+
+	// ---- 0) 连通性预检：来源 → URL 归一化 -----------------------------------
+	check(
+		probeUrlForSource("morehao/ai-kit") === "https://github.com/morehao/ai-kit.git",
+		"预检：owner/repo 归一为 GitHub HTTPS",
+		probeUrlForSource("morehao/ai-kit"),
+	);
+	check(
+		probeUrlForSource("https://github.com/morehao/ai-kit.git") === "https://github.com/morehao/ai-kit.git",
+		"预检：HTTPS URL 原样使用",
+		probeUrlForSource("https://github.com/morehao/ai-kit.git"),
+	);
+	check(
+		probeUrlForSource("git+https://gitlab.com/acme/tools.git") === "https://gitlab.com/acme/tools.git",
+		"预检：去掉 git+ 前缀",
+		probeUrlForSource("git+https://gitlab.com/acme/tools.git"),
+	);
+	check(
+		probeUrlForSource("git@github.com:morehao/ai-kit.git") === "git@github.com:morehao/ai-kit.git",
+		"预检：SSH scp 语法原样使用",
+		probeUrlForSource("git@github.com:morehao/ai-kit.git"),
+	);
+	check(
+		probeUrlForSource("./local-skill") === undefined && probeUrlForSource("~/ai-kit/skills/svg-maker") === undefined,
+		"预检：本地路径不联网探测",
+	);
+	const skippedProbe = await probeSourceReachability("morehao/ai-kit", {
+		env: { DSH_COMMANDS_SKILL_PROBE_MS: "0" },
+	});
+	check(skippedProbe.status === "skipped", "预检：超时设为 0 时跳过", JSON.stringify(skippedProbe));
+	const abortedProbe = await probeSourceReachability("morehao/ai-kit", {
+		env: { DSH_COMMANDS_SKILL_PROBE_MS: "8000" },
+		signal: AbortSignal.abort(),
+	});
+	check(abortedProbe.status === "skipped", "预检：命令已取消时不联网", JSON.stringify(abortedProbe));
+
+	// 假 git 卡住：预检必须在自己的超时内杀掉它，而不是等硬超时
+	const fakeBin = join(root, "fake-bin");
+	await mkdir(fakeBin, { recursive: true });
+	await writeFile(join(fakeBin, "git"), "#!/bin/sh\nexec sleep 5\n", { mode: 0o755 });
+	const timedOutProbe = await probeSourceReachability("acme/slow", {
+		env: { PATH: fakeBin, DSH_COMMANDS_SKILL_PROBE_MS: "120" },
+	});
+	check(
+		timedOutProbe.status === "unreachable" && timedOutProbe.timedOut === true,
+		"预检：git 卡住时按预检超时快速失败",
+		JSON.stringify(timedOutProbe),
 	);
 
 	const canonical = (name) => join(home, ".agents", "skills", name);
@@ -144,12 +212,13 @@ try {
 		"cli：克隆超时比外层硬超时早 30s（60000 → 30000），避免被 SIGKILL 截断诊断",
 		JSON.stringify(cliEnv),
 	);
+	check(cliEnv.gitPrompt === "0", "cli：GIT_TERMINAL_PROMPT=0，凭据提示不会让命令无限挂起", JSON.stringify(cliEnv));
 
 	// ---- 2) 已托管 → 跳过且不调 CLI -----------------------------------------
 	const callsBefore = await stubCalls();
 	text = await runSkillInit(COMMANDS, {});
 	check(text.includes("已托管，跳过"), "init 幂等：已托管技能跳过", text);
-	check(text.startsWith("✓ 无需操作："), "init 幂等：首行是结论式「无需操作」", text);
+	check(text.startsWith("✓ 已是最新："), "init 幂等：首行是结论式「已是最新」", text);
 	check((await stubCalls()) === callsBefore, "init 幂等：未再次调用 CLI");
 
 	// ---- 3) unmanaged（本地 clone 软链）→ 替换，不做备份 --------------------
@@ -194,12 +263,36 @@ try {
 	check(!text.includes("✓ git-kit"), "init：不受影响的技能不被重复处理", text);
 
 	// ---- 6) /skill-install：任意来源 ---------------------------------------
-	const { runSkillInstall } = await import("../lib/skill-setup.js");
-
 	await runSkillInstall(COMMANDS, "", {}).then(
 		() => check(false, "install：缺来源时应报错"),
 		(error) => check(String(error.message).includes("缺少来源"), "install：缺来源报错", String(error.message)),
 	);
+
+	// 连不上来源：不启动 CLI，几秒内给出可操作错误（用本机 1 端口模拟网络不通）
+	if (spawnSync("git", ["--version"], { stdio: "ignore" }).status === 0) {
+		const savedCli = process.env.DSH_COMMANDS_SKILL_CLI;
+		const savedProbe = process.env.DSH_COMMANDS_SKILL_PROBE_MS;
+		delete process.env.DSH_COMMANDS_SKILL_CLI;
+		process.env.DSH_COMMANDS_SKILL_PROBE_MS = "2000";
+		let unreachableError = "";
+		const probeStartedAt = Date.now();
+		try {
+			await runSkillInstall(COMMANDS, "http://127.0.0.1:1/x.git demo-a", {});
+		} catch (error) {
+			unreachableError = String(error.message);
+		}
+		const probeElapsed = Date.now() - probeStartedAt;
+		if (savedCli === undefined) delete process.env.DSH_COMMANDS_SKILL_CLI;
+		else process.env.DSH_COMMANDS_SKILL_CLI = savedCli;
+		if (savedProbe === undefined) delete process.env.DSH_COMMANDS_SKILL_PROBE_MS;
+		else process.env.DSH_COMMANDS_SKILL_PROBE_MS = savedProbe;
+		check(
+			unreachableError.includes("连不上技能来源") && unreachableError.includes("代理"),
+			"预检：明确网络不通时快速失败并给代理/镜像提示",
+			unreachableError,
+		);
+		check(probeElapsed < 10_000, "预检：失败发生在硬超时之前", `${probeElapsed}ms`);
+	}
 
 	const callsBeforeInstall = await stubCalls();
 	text = await runSkillInstall(COMMANDS, "acme/toolkit tech-design", {});
@@ -220,6 +313,12 @@ try {
 		"install：软链指向 canonical",
 	);
 	check((await stubCalls()) === callsBeforeInstall + 1, "install：只调用一次 CLI");
+	const installSkip = await jobSkipReason("skill-install", COMMANDS, "acme/toolkit tech-design");
+	check(
+		typeof installSkip === "string" && installSkip.includes("tech-design"),
+		"install：已托管的显式技能不建作业（jobSkipReason）",
+		String(installSkip),
+	);
 
 	// 装"全部"：CLI 未收到 --skill，靠 canonical 目录 diff 找出新技能；
 	// 同时把 demo-a 预先做成真实目录，验证 install 也拒绝覆盖真实目录。
@@ -233,6 +332,43 @@ try {
 		(await readlinkOrError(linkPath("demo-b"))) === canonical("demo-b"),
 		"install：diff 发现的技能也被软链",
 	);
+
+	// ---- 6b) 并发保护：第二次 Enter 不再并行克隆 ---------------------------
+	process.env.STUB_SLEEP_MS = "400";
+	const firstInstall = runSkillInstall(COMMANDS, "acme/slow slow-a", {});
+	await new Promise((resolve) => setTimeout(resolve, 80));
+	let concurrentError = "";
+	try {
+		await runSkillInstall(COMMANDS, "acme/slow slow-a", {});
+	} catch (error) {
+		concurrentError = String(error.message);
+	}
+	check(concurrentError.includes("已有技能安装任务正在进行"), "并发：第二次安装被拒绝（不重复克隆）", concurrentError);
+	const firstInstallText = await firstInstall;
+	check(firstInstallText.includes("slow-a"), "并发：第一次安装正常完成", firstInstallText);
+	delete process.env.STUB_SLEEP_MS;
+
+	// ---- 6c) 硬超时：错误写明"超时/强制终止"，且锁会释放 ---------------------
+	process.env.STUB_HANG = "1";
+	process.env.DSH_COMMANDS_SKILL_TIMEOUT_MS = "1200";
+	const timeoutStartedAt = Date.now();
+	let timeoutError = "";
+	try {
+		await runSkillUpdate(COMMANDS, "git-kit", {});
+	} catch (error) {
+		timeoutError = String(error.message);
+	}
+	const timeoutElapsed = Date.now() - timeoutStartedAt;
+	delete process.env.STUB_HANG;
+	process.env.DSH_COMMANDS_SKILL_TIMEOUT_MS = "60000";
+	check(
+		timeoutError.includes("更新超时") && timeoutError.includes("已强制终止"),
+		"超时：回执写明超时与强制终止（不再是退出码 SIGKILL）",
+		timeoutError,
+	);
+	check(timeoutElapsed < 5_000, "超时：按 DSH_COMMANDS_SKILL_TIMEOUT_MS 及时收敛", `${timeoutElapsed}ms`);
+	text = await runSkillUpdate(COMMANDS, "git-kit", {});
+	check(text.includes("✓ git-kit：已更新到最新"), "并发/超时：失败后锁已释放，下一次仍可执行", text);
 
 	// ---- 7) 未托管/缺失时 update 只提示 -------------------------------------
 	text = await runSkillUpdate(COMMANDS, "", {});

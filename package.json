@@ -34,8 +34,11 @@
     "conventional-commits",
     "skills"
   ],
+  "dependencies": {
+    "skills": "latest"
+  },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.20"
   },
   "publishConfig": {
     "access": "public"

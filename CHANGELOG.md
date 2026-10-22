@@ -4,6 +4,49 @@
 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 的 `commands-dsh/` 目录发布，
 2026-10 起在本仓发布；npm 包名未变，版本号连续。
 
+## [Unreleased]
+
+### 性能
+
+- **技能安装改为「本地缓存 + 直接调用 skills CLI」**，仍然走官方 `skills add`，产物仍是标准
+  `~/.agents/skills` + `.skill-lock.json`，其他 agent 可继续 `npx skills`：
+  - 首次把来源 `git clone --depth 1` 到 `$DSH_HOME/cache/skills-sources/<hash>`，之后用
+    `git fetch --depth 1` 增量更新；TTL 内（默认 10 分钟）不联网。
+  - 安装时把缓存目录交给 `skills add`，不再每次整仓克隆；`skills` 作为依赖直接
+    `node bin/cli.mjs`，省掉每次 `npx` 约 2–3s 启动；依赖缺失时才回退 npx。
+    显式设置 `DSH_COMMANDS_SKILLS_CLI` 仍按原样走 npx 指定版本，便于回退/对比。
+  - 使用 `skills add --json` 解析安装结果；安装后把 lock 的 `source`/`sourceType`/`sourceUrl`/
+    `skillPath`/`skillFolderHash` 回写为远端身份，实测 `npx skills update` 仍能识别为 up to date。
+  - 首次 `/skill-init` 约 7–8s，已缓存补装约 1–1.3s、修复软链约 1.0s、`/skill-update` 约 4.5–5s；
+    已托管的显式 `/skill-install` 在 TTL 内只做本地 hash 比对（约 0.3–0.8s），TTL 过期会进入作业检查上游。
+  - 新增 `DSH_COMMANDS_SKILL_CACHE_TTL_MS`（默认 600000；0=每次刷新，<0=离线）、
+    `DSH_COMMANDS_SKILL_CACHE_CLONE_TIMEOUT_MS`（默认 60000）、
+    `DSH_COMMANDS_SKILL_CACHE_FETCH_TIMEOUT_MS`（默认 20000）。
+- **已安装不再等于永久跳过**：`/skill-init`、`/skill-install` 先比对 lock 的 `skillFolderHash` 与缓存
+  git tree hash；TTL 内一致才返回「已是最新」，TTL 过期会 fetch 上游，有变化才重装。`/skill-update`
+  始终强制 fetch。
+- 插件 `engines` 与 `skills` 对齐为 Node.js ≥ 22.20；依赖改为 `skills: latest`，npx 回退也不再带
+  `@1.7.4`。
+
+### 修复
+
+- **`/skill-init`、`/skill-install` 在 GitHub 443 不通时"回车后没反应"**：克隆前先跑
+  `git ls-remote --heads` 连通性预检（默认 8s，`DSH_COMMANDS_SKILL_PROBE_MS` 可调），明确连不上时几秒内失败并
+  给出代理/镜像/本地来源提示；认证失败等交给上游 CLI 判断。
+- 外层硬超时从 300s 降到 120s；超时回执写「超时（超过 Ns，已强制终止）」，不再显示成容易误读的
+  `退出码 SIGKILL`。
+- CLI 子进程固定 `GIT_TERMINAL_PROMPT=0`：私有仓缺凭据时快速失败，而不是挂在凭据输入提示上。
+- 同一 `DSH_HOME` 同时只允许一个技能安装/更新任务：连按两次回车时第二次直接提示「已有技能安装任务正在进行」，
+  不再并行克隆同一个仓库。
+- spinner 折叠同时抹掉轮换字形（`◒`/`◐`/`◓`/`◑`…），避免几百帧进度挤掉真正的错误尾行。
+
+### 测试
+
+- 冒烟新增连通性预检 URL 归一化、并发拒绝、硬超时措辞与锁释放、轮换字形 spinner 等断言。
+- 新增 `scripts/smoke-skill-cache.mjs`（24 项，离线）：cache clone/TTL/refresh/离线模式/fetch 失败回退、
+  `--json` 解析、lock 来源/git tree hash 回写、`cacheStatus` 与 `cachedSkillHash`。另用真实 ai-kit 验证首次 8.0s、缓存修复 1.0s、
+  补装 1.3s、update 4.7s，以及插件安装后 `npx skills update handoff -g -y` 返回 up to date。
+
 ## [v0.1.12] - 2026-10-22
 
 ### Docs
