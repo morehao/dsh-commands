@@ -23,6 +23,11 @@ import { join } from "node:path";
 
 const argv = process.argv.slice(2);
 await appendFile(process.env.STUB_LOG, JSON.stringify(argv) + "\\n");
+if (process.env.STUB_FAIL === "1") {
+	process.stdout.write("╭──────────────────────╮\\n│   resolving source   │\\n╰──────────────────────╯\\n─────\\n");
+	process.stderr.write("[stub] registry unreachable\\n");
+	process.exit(1);
+}
 const source = argv[1];
 const skills = [];
 for (let i = 0; i < argv.length; i++) if (argv[i] === "--skill") skills.push(argv[++i]);
@@ -92,7 +97,7 @@ try {
 
 	// ---- 1) missing → 安装 + 软链 -------------------------------------------
 	let text = await runSkillInit(COMMANDS, {});
-	check(text.includes("+ git-kit") && text.includes("+ handoff"), "init：缺失技能被安装", text);
+	check(text.includes("✓ git-kit") && text.includes("✓ handoff"), "init：缺失技能被安装", text);
 	check(existsSync(join(canonical("git-kit"), "SKILL.md")), "init：canonical 目录已生成");
 	check(
 		existsSync(linkPath("git-kit")) && existsSync(linkPath("handoff")),
@@ -138,7 +143,7 @@ try {
 	check(existsSync(join(linkPath("git-kit"), "SKILL.md")), "update：软链仍可读");
 
 	const scoped = await runSkillUpdate(COMMANDS, "handoff", {});
-	check(scoped.includes("技能更新（1 个：handoff）"), "update：可按技能名限定范围", scoped);
+	check(scoped.includes("技能更新 · handoff ·"), "update：可按技能名限定范围", scoped);
 	await runSkillUpdate(COMMANDS, "nonexistent", {}).then(
 		() => check(false, "update：未知技能名应报错"),
 		(error) => check(String(error.message).includes("未知技能"), "update：未知技能名报错", String(error.message)),
@@ -159,7 +164,7 @@ try {
 		"init：真实目录内容未被改动",
 	);
 	check(!existsSync(join(dshHome, "skills-backup")), "init：拒绝覆盖时同样没有备份目录");
-	check(!text.includes("+ git-kit"), "init：不受影响的技能不被重复处理", text);
+	check(!text.includes("✓ git-kit"), "init：不受影响的技能不被重复处理", text);
 
 	// ---- 6) /skill-install：任意来源 ---------------------------------------
 	const { runSkillInstall } = await import("../lib/skill-setup.js");
@@ -182,7 +187,7 @@ try {
 		"install：同样固定 -a universal",
 		JSON.stringify(installArgv),
 	);
-	check(text.includes("+ tech-design：已安装"), "install：显式技能名被软链", text);
+	check(text.includes("✓ tech-design：已安装"), "install：显式技能名被软链", text);
 	check(
 		(await readlinkOrError(linkPath("tech-design"))) === canonical("tech-design"),
 		"install：软链指向 canonical",
@@ -194,7 +199,7 @@ try {
 	await mkdir(linkPath("demo-a"), { recursive: true });
 	await writeFile(join(linkPath("demo-a"), "SKILL.md"), "---\nname: demo-a\ndescription: 手工拷入\n---\n");
 	text = await runSkillInstall(COMMANDS, "acme/bundle", {});
-	check(text.includes("+ demo-b：已安装"), "install：未指定技能名时按目录 diff 建链", text);
+	check(text.includes("✓ demo-b：已安装"), "install：未指定技能名时按目录 diff 建链", text);
 	check(text.includes("✗ demo-a") && text.includes("拒绝覆盖"), "install：真实目录同样拒绝覆盖", text);
 	check((await stat(linkPath("demo-a"))).isDirectory(), "install：真实目录原样保留");
 	check(
@@ -209,6 +214,215 @@ try {
 		"update：非托管/缺失条目给出提示",
 		text,
 	);
+	// ---- 8) 过程可见：后台任务（jobs） -------------------------------------
+	// 假注册表：只实现 runInJob 用到的那几个方法，断言"启动一次 / 阶段文案 / 流式输出 /
+	// 结算前已 wait（awaited → 不投完成通知）/ 结果带回作业视图"。
+	const { runInJob } = await import("../lib/job-progress.js");
+	const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+	const createFakeJobs = () => {
+		const state = { starts: [], progresses: [], chunks: [], waits: 0, settled: false, view: undefined };
+		const id = "skill-init-fake0000000000000";
+		const api = {
+			start(spec) {
+				state.starts.push({ id, kind: spec.kind, label: spec.label, owner: spec.owner });
+				const handle = {
+					append: (text, options) => state.chunks.push({ text, channel: options?.channel }),
+					updateProgress: (line) => state.progresses.push(line),
+				};
+				spec.run(handle).done.then(() => {
+					state.settled = true;
+					state.awaited = state.waits > 0;
+				});
+				state.view = () => ({
+					id,
+					kind: spec.kind,
+					label: spec.label,
+					status: state.settled ? "completed" : "running",
+				});
+				return id;
+			},
+			get: () => state.view(),
+			async wait() {
+				state.waits += 1;
+				await sleep(2);
+				return state.view();
+			},
+			kill: () => {},
+			readAt: async () => ({ chunks: state.chunks }),
+		};
+		return { api, state, id };
+	};
+
+	const fake = createFakeJobs();
+	const outcome = await runInJob({
+		jobs: fake.api,
+		owner: "session-1",
+		kind: "skill-init",
+		label: "检查并安装插件依赖的技能",
+		work: (reporter, registerCancel) => runSkillInit(COMMANDS, { reporter, registerCancel }),
+	});
+	check(fake.state.starts.length === 1, "jobs：只启动一个作业", JSON.stringify(fake.state.starts));
+	check(
+		fake.state.starts[0]?.kind === "skill-init" &&
+			fake.state.starts[0]?.owner === "session-1" &&
+			String(fake.state.starts[0]?.label ?? "").length > 0,
+		"jobs：kind / owner / label 透传",
+		JSON.stringify(fake.state.starts[0]),
+	);
+	check(
+		fake.state.progresses.length >= 3 &&
+			fake.state.progresses.some((line) => line.includes("检查依赖技能")) &&
+			fake.state.progresses.some((line) => line.includes("校验命令分支契约")),
+		"jobs：阶段文案实时刷新",
+		JSON.stringify(fake.state.progresses),
+	);
+	check(
+		fake.state.chunks.some((chunk) => typeof chunk.text === "string" && chunk.text.includes("stub: installed")),
+		"jobs：CLI 输出流进作业面板",
+		JSON.stringify(fake.state.chunks),
+	);
+	check(fake.state.awaited === true, "jobs：结算前已 wait（awaited，不投完成通知）", JSON.stringify(fake.state));
+	check(outcome.job?.id === fake.id, "jobs：结果带回作业视图", JSON.stringify(outcome.job));
+	check(
+		String(outcome.value).includes("技能依赖检查 ·") && !String(outcome.value).includes("CLI："),
+		"jobs：回执是结构化文本（不再塞 CLI 原始输出）",
+		outcome.value,
+	);
+
+	// 用户停止（作业被 kill）→ killed 分支
+	let killWorkDone = false;
+	const killed = await runInJob({
+		jobs: {
+			start: (spec) => {
+				spec.run({ append: () => {}, updateProgress: () => {} });
+				return "killed-job";
+			},
+			get: () => ({ id: "killed-job", status: "running" }),
+			wait: async () => {
+				killWorkDone = true;
+				return { id: "killed-job", status: "killed" };
+			},
+			kill: () => {},
+			readAt: async () => ({ chunks: [{ text: "partial" }] }),
+		},
+		owner: "session-1",
+		kind: "skill-init",
+		label: "x",
+		work: () => runSkillInit(COMMANDS, {}),
+	});
+	check(killed.killed === true && killWorkDone, "jobs：作业被停止时返回 killed（不误报成功）", JSON.stringify(killed));
+
+	// 命令被取消（signal）→ 只 kill 作业、继续等终态（保住 awaited）
+	const abortController = new AbortController();
+	let abortKillCalls = 0;
+	let abortKilled = false;
+	const abortOutcome = await runInJob({
+		jobs: {
+			start: (spec) => {
+				spec.run({ append: () => {}, updateProgress: () => {} });
+				return "abort-job";
+			},
+			get: () => ({ id: "abort-job", status: abortKilled ? "killed" : "running" }),
+			wait: async () => {
+				if (!abortKilled) abortController.abort();
+				return { id: "abort-job", status: abortKilled ? "killed" : "running" };
+			},
+			kill: () => {
+				abortKilled = true;
+				abortKillCalls += 1;
+			},
+			readAt: async () => ({ chunks: [] }),
+		},
+		owner: "session-1",
+		kind: "skill-init",
+		label: "x",
+		signal: abortController.signal,
+		work: () => runSkillInit(COMMANDS, {}),
+	});
+	check(
+		abortKillCalls === 1 && abortOutcome.killed === true,
+		"取消：signal 中止只 kill 作业并继续等到终态",
+		JSON.stringify({ abortKillCalls, status: abortOutcome.job?.status }),
+	);
+
+	// 降级 1：没有 jobs 服务
+	const degraded = await runInJob({
+		jobs: undefined,
+		owner: "session-1",
+		kind: "skill-init",
+		label: "x",
+		work: () => runSkillInit(COMMANDS, {}),
+	});
+	check(
+		degraded.job === undefined && typeof degraded.value === "string" && degraded.fallbackReason.length > 0,
+		"降级：jobs 缺失时直接执行并保留回执",
+		JSON.stringify(degraded.fallbackReason),
+	);
+
+	// 降级 2：有服务但没控制器（start 抛错）——工作还没开始，必须退回而不是失败
+	const noController = {
+		start() {
+			throw new Error("background jobs unavailable: no job controller serves this agent");
+		},
+	};
+	const fellBack = await runInJob({
+		jobs: noController,
+		owner: "session-1",
+		kind: "skill-update",
+		label: "y",
+		work: () => runSkillUpdate(COMMANDS, "", {}),
+	});
+	check(
+		fellBack.job === undefined && String(fellBack.value).includes("技能更新 ·"),
+		"降级：无控制器时退回直接执行（不报失败）",
+		String(fellBack.value),
+	);
+
+	// 失败回执：保留真正的错误行，剥掉 clack 的框线/分隔线
+	process.env.STUB_FAIL = "1";
+	let cliFailure = null;
+	try {
+		await runSkillUpdate(COMMANDS, "", {});
+	} catch (error) {
+		cliFailure = error;
+	}
+	delete process.env.STUB_FAIL;
+	const failureText = cliFailure === null ? "" : String(cliFailure.message);
+	check(failureText.includes("registry unreachable"), "失败回执：保留真正的错误行", failureText);
+	check(failureText.length > 0 && !/[│╭╰─]/.test(failureText), "失败回执：框线/装饰线被剥掉", failureText);
+	// ---- 9) 端到端：apply() 注册的 handler 真的把命令挂到作业上 ------------
+	const { apply } = await import("../lib/index.js");
+	const registered = new Map();
+	const driveEffect = (input) => {
+		const generator = typeof input === "function" ? input() : input;
+		let step = generator.next();
+		while (!step.done) step = generator.next(step.value);
+		return step.value;
+	};
+	const e2eJobs = createFakeJobs();
+	apply({
+		effect: (generator) => driveEffect(generator),
+		get: (name) => (name === "jobs" ? e2eJobs.api : undefined),
+		commands: {
+			register(definition) {
+				registered.set(definition.name, definition);
+				return () => registered.delete(definition.name);
+			},
+		},
+	});
+	check(
+		registered.size === 13 && registered.has("skill-init") && registered.has("git-message"),
+		"e2e：注册了 13 条命令（10 委托 + 3 本地）",
+		[...registered.keys()].join(","),
+	);
+	const e2eResult = await registered.get("skill-init").handler({
+		rawInput: "",
+		signal: undefined,
+		agent: { session: { id: "session-e2e" } },
+	});
+	check(e2eResult.kind === "success" && e2eResult.text.includes("技能依赖检查 ·"), "e2e：/skill-init 返回结构化回执", e2eResult.text);
+	check(e2eResult.text.includes("过程：作业 skill-init-fake"), "e2e：回执末行指向作业", e2eResult.text);
+	check(e2eJobs.state.starts[0]?.owner === "session-e2e", "e2e：作业 owner 是当前会话", JSON.stringify(e2eJobs.state.starts[0]));
 } finally {
 	await rm(root, { recursive: true, force: true });
 }

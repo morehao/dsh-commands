@@ -19,13 +19,14 @@
 | `/git-star-classify` | 无 | git-kit → star-classify |
 | `/handoff` | `[任务范围]` | handoff → print（只打印，不落盘） |
 
-另有三条**本地执行型**命令（不经 agent、不委托 skill），负责把技能装上、软链进 dsh 并保持最新：
+另有三条**本地执行型**命令（不经 agent、不委托 skill），负责把技能装上、软链进 dsh 并保持最新。
+它们的长任务会挂到 dsh 后台任务上，**过程实时可见**（见「[过程可见](#过程可见后台任务)」）：
 
-| 命令 | 参数 | 行为 |
-|---|---|---|
-| `/skill-init` | 无 | 检查依赖技能（`git-kit`、`handoff`）：缺失则用 `npx skills` 全局安装并软链进 `$DSH_HOME/skills`；已由 CLI 托管则跳过；存在但来自别处（如本地 clone 的软链）则**替换**为托管链路（真实目录拒绝覆盖） |
-| `/skill-install` | `<来源> [技能名...]` | 安装**任意来源**的技能（`owner/repo`、git/HTTPS URL 或本地路径，与 `npx skills add` 的来源语法一致）并软链进 dsh；不给技能名则装该来源发现的全部技能 |
-| `/skill-update` | `[技能名]` | 把依赖技能重装到上游最新（`npx skills add … -g -a universal -y`）并校验软链仍可解析；未托管/缺失条目只提示、不动 |
+| 命令 | 参数 | 行为 | 过程 |
+|---|---|---|---|
+| `/skill-init` | 无 | 检查依赖技能（`git-kit`、`handoff`）：缺失则用 `npx skills` 全局安装并软链进 `$DSH_HOME/skills`；已由 CLI 托管则跳过；存在但来自别处（如本地 clone 的软链）则**替换**为托管链路（真实目录拒绝覆盖） | 作业行显示阶段，面板是 `npx skills` 的流式输出 |
+| `/skill-install` | `<来源> [技能名...]` | 安装**任意来源**的技能（`owner/repo`、git/HTTPS URL 或本地路径，与 `npx skills add` 的来源语法一致）并软链进 dsh；不给技能名则装该来源发现的全部技能 | 同上 |
+| `/skill-update` | `[技能名]` | 把依赖技能重装到上游最新（`npx skills add … -g -a universal -y`）并校验软链仍可解析；未托管/缺失条目只提示、不动 | 同上 |
 
 ## 原理（命令 = 意图表）
 
@@ -40,7 +41,7 @@
 - 编辑技能（`$DSH_HOME/skills/git-kit/`、`$DSH_HOME/skills/handoff/`）的内容**无需重启**，下次执行即生效——技能由 ai-kit 提供，与本插件版本无关。
 - 修改本插件的 `lib/index.js`（含 `COMMANDS` 表）需重启 dsh web 生效。**但只有以 `link:` 方式接入时改源码才生效**：若 profile 里装的是 npm 版（`dsh plugin --profile web add @morehao/dsh-commands`），profile 下的 `node_modules` 是一份**拷贝**，改仓库源码不会生效，需先升版本发版再重装。
 
-## 技能依赖自举（`lib/skill-setup.js`）
+## 技能依赖自举（`lib/skill-setup.js` + `lib/job-progress.js`）
 
 `/skill-init`、`/skill-install`、`/skill-update` 不是「意图表」：它们要判断文件状态、建软链、拉上游，结果必须确定，所以直接在 handler 内执行，不交给 agent。依赖集合仍从 `COMMANDS` 推导（`skill ?? "git-kit"` 去重，导出为 `REQUIRED_SKILLS`），新增委托型命令后这两条自动跟进。
 
@@ -62,6 +63,28 @@ npx -y skills@<pin> add morehao/ai-kit --skill <缺的> -g -a universal -y
 - dsh 同层同名技能按根 rank 取小者（`$DSH_HOME/skills`=400 胜 `~/.agents/skills`=500），软链与 canonical 并存不会产生重复技能；技能根有 watcher，装完免重启。
 - `/skill-install` 不限于插件依赖：装完靠三路取并集决定给谁建软链——用户显式写的技能名、安装前后 canonical 目录的差集、lock 里 source 匹配的技能。
 - 需要 Node.js ≥ 22.20（`skills` 包 engine）与 git/网络。CLI 版本默认 pin（`DSH_COMMANDS_SKILLS_CLI` 可覆盖）；`npx` 找不到时用登录 shell 反查，仍找不到则报错并给出手工命令。
+
+### 过程可见（后台任务）
+
+首次 `/skill-init` 要真下上游（实测 10 秒上下），而 dsh 的命令面**没有进度通道**：
+`@deepseek-ai/dsh-commands` 的 `execute()` 只 append `command/run` 和 `command/done` 两个事件，
+UI 的命令卡片在运行期只能渲染「执行中…」（一方命令 `/compact` 同样如此）。所以"过程"放在
+dsh 的**后台任务**上（`lib/job-progress.js`，用 `ctx.jobs`；base 组合已含 `dsh-jobs-local` + `dsh-tool-jobs`）：
+
+| 面 | 内容 |
+|---|---|
+| 会话头部的作业行 | 实时阶段文案：`检查依赖技能 → 安装 git-kit → 链入 dsh → 校验契约` |
+| 展开的面板 | `npx skills` 的**流式输出**（clack 的下载/进度/Done 都在），保留 256 KB，结算后留 16 KB |
+| 行上的停止控件 | 两击停止：先 SIGTERM 再 SIGKILL 子进程，命令卡片结算为「已停止」 |
+| 命令卡片 | 结构化回执（逐技能结论 + 耗时）+ 一行「过程：作业 `skill-init-…`」 |
+
+**为什么不耗 token**：命令 handler 自己 `wait()` 到作业终态，结算时 `awaited` 为真，
+`dsh-tool-jobs` 便跳过完成通知——既不注入消息、也不会唤醒一个模型回合（这一点在冒烟里有断言）。
+反过来若改成"订阅结算事件"收尾，就会走通知路径、可能白开一轮，所以代码里固定用 `wait` 循环。
+
+**降级**：`ctx.jobs` 缺失（headless 组合）、没控制器（未加载 `dsh-tool-jobs`）、并发上限、
+或当前会话没有活 agent 时，命令自动退回原来的「转圈 → 一次性回执」，回执末尾会写「过程：未启用后台任务（原因）」。
+`apply` 不把 `jobs` 写进 `inject`，所以没有 jobs 的组合照常加载。
 
 ## 安装
 
@@ -92,7 +115,7 @@ dsh plugin --profile <profile> add link:/绝对路径/dsh-commands
 
 ## 典型用法（针对 ai-kit）
 
-[`morehao/ai-kit`](https://github.com/morehao/ai-kit) 现提供 6 个技能：`git-kit`、`handoff`（插件依赖，由 `/skill-init` 管）与 `project-insight`、`project-wiki`、`svg-maker`、`tech-design`（按需 `/skill-install`）。以下示例需要 **v0.1.9+**（三个命令是这一版新增的）。
+[`morehao/ai-kit`](https://github.com/morehao/ai-kit) 现提供 6 个技能：`git-kit`、`handoff`（插件依赖，由 `/skill-init` 管）与 `project-insight`、`project-wiki`、`svg-maker`、`tech-design`（按需 `/skill-install`）。以下示例需要 **v0.1.9+**（三个命令是这一版新增的）；运行期的作业行/流式输出需要 **v0.1.10+**。
 
 ### `/skill-init`：只装插件依赖的两个
 
@@ -179,6 +202,7 @@ dsh 的插件页（侧栏「插件」→ 组合包详情与组件行）在**不�
 
   它逐条检查 `$DSH_HOME/skills/<skill>/references/<branch>.md` 是否存在（单分支技能只校验 `SKILL.md` 存在，如 `/handoff` 的 `print`）。技能改分支名而插件没跟，就是在这里暴露的。
 - `/skill-init`、`/skill-install`、`/skill-update` 的改动跑 `node scripts/smoke-skill-setup.mjs`：它用 `DSH_COMMANDS_SKILL_CLI` 指向一个 stub 顶替 `npx skills`，在临时 HOME 里覆盖「缺失→装+软链 / 已托管→跳过 / 非托管软链→替换 / 真实目录→拒绝覆盖 / 任意来源安装 / 更新」六条路径，不联网、不碰真实 `~/.dsh`。
+- 过程可见（`lib/job-progress.js`）的改动也在同一条冒烟里：它用一个**假 jobs 注册表**断言「只启动一个作业 / kind·owner·label 透传 / 阶段文案刷新 / CLI 输出流入面板 / 结算前已 `wait`（awaited，不投通知）/ 结果带回作业视图 / 作业被停止返回 killed / 取消只 kill 不抢跑 / jobs 缺失与无控制器降级 / 失败回执剥框线 / `apply()` 注册的 handler 端到端跑通（13 条命令、回执带作业 id）」，共 51 项断言。改动前先读该文件顶部注释：它记录了「为什么只能用 `wait` 收尾」以及 dsh 侧的行号证据。
 - CI（`.github/workflows/check.yml`）在 PR 上机械校验：发布脚本语法、插件语法（含 `lib/skill-setup.js`）、包名/模块标识符/插件名三处一致、打包内容白名单、技能自举冒烟。契约校验默认不在 CI 跑（它依赖另一仓的技能目录）。
 
 ## 发布（自动）

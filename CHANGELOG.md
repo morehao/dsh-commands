@@ -4,6 +4,36 @@
 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 的 `commands-dsh/` 目录发布，
 2026-10 起在本仓发布；npm 包名未变，版本号连续。
 
+## 0.1.10
+
+### 新增
+
+- **过程可见**：`/skill-init`、`/skill-install`、`/skill-update` 的长任务改挂 dsh 后台任务
+  （`ctx.jobs`；base 组合已含 `dsh-jobs-local` + `dsh-tool-jobs`）——会话头部的作业行实时显示阶段
+  （`检查依赖技能 → 安装 git-kit → 链入 dsh → 校验契约`），展开面板里是 `npx skills` 的流式输出，
+  行上可两击停止。命令 handler 自己 `wait()` 收掉结算（`awaited`），所以**不投完成通知、不触发模型回合、
+  不耗 token**。新增 `lib/job-progress.js`（`runInJob` / `NO_REPORTER`）封装这层适配，`skill-setup.js`
+  的三个 `run*` 只认 `reporter.progress/write`。
+- 命令结果末尾追加一行「过程：作业 `<id>`（会话头部「作业」可展开看完整输出，进行中可两击停止）」。
+
+### 变更
+
+- 回执整形：命令卡片不再塞 CLI 的原始输出（clack 的 `│ … │` / `Done!  Review skills` / 分隔线），
+  完整内容留在作业面板；头部改为「技能依赖检查 · git-kit、handoff · 10.4s」形式并带耗时；
+  新装符号由 `+` 统一为 `✓`；失败回执的尾部输出同样剥掉框线与分隔线。
+- 过程**只能**落在后台任务里：命令面本身没有进度通道（`@deepseek-ai/dsh-commands` 的 `execute()`
+  只 append `command/run` 与 `command/done`，UI 卡片运行期只能渲染「执行中…」）。`ctx.jobs` 缺失、
+  无控制器（未加载 `dsh-tool-jobs`）、并发上限或 owner 无活 agent 时自动**退回**原来的
+  「转圈 → 一次性回执」，语义不变；`apply` 不把 `jobs` 加进 `inject`，无 jobs 的组合照常加载。
+
+### 测试
+
+- `scripts/smoke-skill-setup.mjs` 增加"过程可见"断言组（假 jobs 注册表）：只启动一个作业、
+  kind/owner/label 透传、阶段文案刷新、CLI 输出流入面板、结算前已 `wait`（awaited）、结果带回作业视图、
+  回执不含 CLI 原文、作业被停止返回 killed、取消只 kill 作业、jobs 缺失降级、无控制器降级、失败回执剥框线，
+  以及 `apply()` 注册的 handler 端到端跑通（13 条命令 + 回执带作业 id）；共 51 项全绿。
+- `.github/workflows/check.yml` 增加 `node --check lib/job-progress.js`。
+
 ## 0.1.9
 
 ### 新增
