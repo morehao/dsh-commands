@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+### 修复
+
+- `release.yml` 建 GitHub Release 时读不到注记正文：tag 事件下 `actions/checkout` 会把
+  `refs/tags/<tag>` 重指成轻量 tag，导致 `release-notes.mjs` 拒绝投影。现建 Release 前按
+  `refs/tags/<tag>` 显式回拉一次，恢复注记后再投影（v0.1.13 缺失的 Release 已手工补建）。
+
 ## [v0.1.13] - 2026-10-23
 
 ### 新增
