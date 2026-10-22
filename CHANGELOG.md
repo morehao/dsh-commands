@@ -4,6 +4,32 @@
 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 的 `commands-dsh/` 目录发布，
 2026-10 起在本仓发布；npm 包名未变，版本号连续。
 
+## 0.1.9
+
+### 新增
+
+- `/skill-init`：检查 `COMMANDS` 依赖的技能（`git-kit`、`handoff`），缺失则用 `npx skills` 全局安装
+  （`add morehao/ai-kit --skill … -g -a universal -y`）并软链进 `$DSH_HOME/skills`；已由 skills CLI 托管的
+  跳过；存在但来自别处（如指向本地 ai-kit clone 的软链）则**替换**为托管软链——只删旧链接本身，
+  不做备份、不动链接目标；同名真实目录/文件一律拒绝覆盖并提示用户自行移走。末尾按 `COMMANDS`
+  的分支契约逐条校验。
+- `/skill-install <来源> [技能名...]`：安装**任意来源**的技能（不限本插件依赖），同样走
+  `npx skills add … -g -a universal -y` 并把结果软链进 `$DSH_HOME/skills`。装完用三路并集决定给谁建链：
+  显式技能名、canonical 目录安装前后差集、lock 里 source 匹配的技能（`owner/repo` / URL / 本地路径
+  都做了来源归一化）。真实目录同样拒绝覆盖。
+- `/skill-update`：把依赖技能（或指定子集）幂等重装到上游最新并校验软链仍可解析。不调 `skills update`
+  —— 它内部 spawn 的 `add` 不带 `-a`，会把链接撒到其它 agent 目录，未检测到 agent 时甚至装到全部 agent。
+- `lib/skill-setup.js`：依赖推导、状态判定（missing / managed / unmanaged / broken）、npx 解析
+  （PATH + 登录 shell 反查）、软链替换（真实目录拒绝）、契约校验。`lib/index.js` 新增 `LOCAL_COMMANDS` 与
+  `REQUIRED_SKILLS` 导出（`COMMANDS` 与 `apply` 对既有命令行为不变）。
+- `scripts/smoke-skill-setup.mjs` + CI 步骤：「技能自举冒烟」，用 `DSH_COMMANDS_SKILL_CLI` 指定的 stub
+  顶替 `npx skills`，在临时 HOME 里覆盖安装/跳过/软链替换/真实目录拒绝/任意来源安装/更新六条路径，不联网。
+
+### 变更
+
+- README「安装」：安装技能从"手工 clone + ln"改为推荐 `/skill-init`（手工方式保留为离线/自管场景），
+  并补充技能托管链路、"只替换软链、真实目录拒绝覆盖"的覆盖策略与 `-a universal` 等不可改的上游约束。
+
 ## 0.1.8
 
 ### 变更
