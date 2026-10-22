@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "dsh 命令集 (dsh-commands)",
-    "description": "把 git-kit 的 Git 工作流与 handoff 跨会话交接接入为 dsh 原生斜杠命令（技能由 ai-kit 仓提供）：commit message、提交推送、分支、PR/MR 创建与合并、tag、pr-merge 之后的发版验证、仓库瘦身、star 分类，以及把当前会话压成可粘贴的续跑提示。"
+    "description": "把 git-kit 的 Git 工作流与 handoff 跨会话交接接入为 dsh 原生斜杠命令（技能由 ai-kit 仓提供）：commit message、提交推送、分支、PR/MR 创建与合并、tag、pr-merge 之后的发版（打 tag、建平台 Release、校验后效）、仓库瘦身、star 分类，以及把当前会话压成可粘贴的续跑提示。"
   }
 }

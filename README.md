@@ -13,7 +13,7 @@
 | `/git-branch` | `<中文描述>`（必填） | git-kit → branch |
 | `/git-pr-create` | `[目标分支]` | git-kit → pr-create |
 | `/git-pr-merge` | `[PR/MR 编号]` | git-kit → pr-merge |
-| `/git-release` | 无 | git-kit → release |
+| `/git-release` | `[版本号或tag]` | git-kit → release |
 | `/git-tag` | `[tag名或分支名]` | git-kit → tag |
 | `/git-slim` | `[保留天数]` | git-kit → slim |
 | `/git-star-classify` | 无 | git-kit → star-classify |
@@ -185,7 +185,8 @@ dsh 的插件页（侧栏「插件」→ 组合包详情与组件行）在**不�
 
 用**打 tag** 自动发布到 npm（OIDC / Trusted Publishing，无需长效 token；见 `.github/workflows/release.yml`；完整流程与踩坑见 [`PUBLISHING.md`](./PUBLISHING.md)）：
 
-- 发布方式：升好版本后打 tag 并推送，workflow 用 OIDC 把该版本发布到 npmjs：
+- **推荐用 `/git-release`**（git-kit 的 `release` 分支）完成「合并之后」那一步：只读预检 → 一次确认 → 打注记 tag → **默认创建 GitHub Release** → 按仓库探测跟踪后效（本仓是 `release.yml` + npm）并出校验回执。本仓 CI 只发 npm、不建 Release，所以 Release 由这条流程补建；只想打标签、不建 Release 就用 `/git-tag`。
+- 发布方式：升好版本后打 tag 并推送，workflow 用 OIDC 把该版本发布到 npmjs（手工等价操作）：
 
   ```bash
   # 1) 升版本：改本仓 package.json 的 version（如 0.1.8 -> 0.1.9），在分支上提交并 push，开 PR 合并到 main
