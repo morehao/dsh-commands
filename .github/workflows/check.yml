@@ -27,10 +27,17 @@ jobs:
         run: bash -n scripts/ci-publish.sh
 
       - name: 插件语法
-        run: node --check lib/index.js
+        run: |
+          node --check lib/index.js
+          node --check lib/skill-setup.js
+          node --check scripts/smoke-skill-setup.mjs
 
       - name: 三处命名一致（包名 / 模块标识符 / 插件名）
         run: node scripts/check-naming.mjs
 
       - name: 打包内容白名单
         run: node scripts/check-pack.mjs
+
+      # 技能自举（/skill-init、/skill-update）：用 stub 顶替 npx skills，不联网、不碰真实 home。
+      - name: 技能自举冒烟
+        run: node scripts/smoke-skill-setup.mjs
