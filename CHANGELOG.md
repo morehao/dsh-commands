@@ -4,6 +4,14 @@
 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 的 `commands-dsh/` 目录发布，
 2026-10 起在本仓发布；npm 包名未变，版本号连续。
 
+## [v0.1.12] - 2026-10-22
+
+### Docs
+
+- split README into topic docs and harden skill error output (#8)
+
+**Full Changelog**: https://github.com/morehao/dsh-commands/compare/v0.1.11...v0.1.12
+
 ## 0.1.11
 
 ### 修复
