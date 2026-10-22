@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [v0.1.13] - 2026-10-23
+
 ### 新增
 
 - **`/cleanup`：接入 ai-kit 的 `disk-cleanup` 技能**（macOS 为主）。先只读测量、出带实测大小的
