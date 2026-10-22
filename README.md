@@ -90,6 +90,73 @@ dsh plugin --profile <profile> add link:/绝对路径/dsh-commands
 # 重启 dsh web
 ```
 
+## 典型用法（针对 ai-kit）
+
+[`morehao/ai-kit`](https://github.com/morehao/ai-kit) 现提供 6 个技能：`git-kit`、`handoff`（插件依赖，由 `/skill-init` 管）与 `project-insight`、`project-wiki`、`svg-maker`、`tech-design`（按需 `/skill-install`）。以下示例需要 **v0.1.9+**（三个命令是这一版新增的）。
+
+### `/skill-init`：只装插件依赖的两个
+
+```
+/skill-init
+```
+
+| 现状 | 行为 |
+|---|---|
+| `~/.dsh/skills` 里没有 | 安装 `git-kit`、`handoff` → 软链 `~/.dsh/skills/*` → `~/.agents/skills/*` |
+| 已手工 `git clone ai-kit && ln -s` | 判定为"非托管软链" → **替换**软链，clone 目录不动 |
+| 已经是托管软链 | 跳过，且**不再调用 CLI** |
+| 同名位置是真实目录 | 该技能报"拒绝覆盖"，其余照常 |
+
+顺带校验分支契约（`git-kit` 的 9 个分支文件是否齐），结束提示"无需重启 dsh"。
+
+### `/skill-install <来源> [技能名...]`：装 ai-kit 的其余技能
+
+```
+/skill-install morehao/ai-kit tech-design                                        # 单个
+/skill-install morehao/ai-kit project-insight project-wiki svg-maker            # 多个
+/skill-install morehao/ai-kit                                                   # 全部（已托管的自动跳过）
+/skill-install ~/practice/ai/ai-kit/skills/svg-maker                            # 本地路径（装的是拷贝）
+```
+
+| 想要的能力 | 命令 |
+|---|---|
+| 写技术方案 / 设计文档 | `/skill-install morehao/ai-kit tech-design` |
+| 解读开源项目（带源码行号引用） | `/skill-install morehao/ai-kit project-insight` |
+| 给项目生成可读 Wiki | `/skill-install morehao/ai-kit project-wiki` |
+| 生成独立 SVG 架构图 | `/skill-install morehao/ai-kit svg-maker` |
+
+装完即可用，无需重启。
+
+### `/skill-update [技能名...]`：更新依赖技能
+
+```
+/skill-update            # 重装 git-kit + handoff 到上游最新
+/skill-update git-kit    # 只更新一个
+```
+
+候选集只来自 `COMMANDS` 的依赖（`git-kit`、`handoff`），`/skill-update svg-maker` 会报「未知技能」。用 `/skill-install` 装进来的额外技能用以下任一方式更新：
+
+```
+/skill-install morehao/ai-kit tech-design          # 重装即更新（推荐）
+npx -y skills@1.7.4 update tech-design -g -y       # 绕过插件，用上游 hash 比对
+```
+
+### 常见组合
+
+```bash
+# ① 新机器一次配齐
+/skill-init
+/skill-install morehao/ai-kit project-insight project-wiki svg-maker tech-design
+
+# ② ai-kit 发新版后
+/skill-update
+/skill-install morehao/ai-kit project-insight project-wiki svg-maker tech-design
+
+# ③ 边改 ai-kit 边用：想保持改完立刻生效就别跑 /skill-init（手工 ln -s 到 clone）；
+#    已切成托管链路后想恢复本地编辑，只换链接、不动文件：
+ln -sfn ~/practice/ai/ai-kit/skills/git-kit ~/.dsh/skills/git-kit
+```
+
 ## 显示元信息（插件页标题 / 描述 / 图标）
 
 dsh 的插件页（侧栏「插件」→ 组合包详情与组件行）在**不加载插件 JS** 的前提下读取展示元信息：
