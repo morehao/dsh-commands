@@ -1,7 +1,7 @@
 {
   "name": "@morehao/dsh-commands",
   "version": "0.1.12",
-  "description": "把 ai-kit 的 git-kit Git 工作流与 handoff 跨会话交接以 dsh 原生斜杠命令接入（薄意图表，委托对应 skill 执行）",
+  "description": "把 ai-kit 的 git-kit Git 工作流、handoff 跨会话交接与 disk-cleanup 磁盘清理以 dsh 原生斜杠命令接入（薄意图表，委托对应 skill 执行）",
   "icon": "icon.svg",
   "type": "module",
   "main": "lib/index.js",
@@ -31,11 +31,16 @@
     "git",
     "git-kit",
     "handoff",
+    "disk-cleanup",
+    "cleanup",
     "conventional-commits",
     "skills"
   ],
+  "dependencies": {
+    "skills": "latest"
+  },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.20"
   },
   "publishConfig": {
     "access": "public"

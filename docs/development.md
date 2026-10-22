@@ -21,7 +21,8 @@
 
 - `branch` 值必须与对应 `SKILL.md` 决策树的分支 key 一致（即 `references/<branch>.md`）；`skill` 省略时默认 `git-kit`。
 - `hint` / `required` 决定输入提示与校验；`description` 原样出现在斜杠菜单，不做 i18n（原因见 [架构与原理](./architecture.md#描述文本不做-i18n有意为之)）。
-- 命令与 ai-kit 里 opencode 侧 `commands-opencode/git/*.md`、`commands-opencode/handoff.md` 是同一 skill 的多条入口，只声明意图、不重复逻辑。
+- 技能对「无参数」有专门语义时用 `noInput` 覆盖默认注入语（`/cleanup` 靠它实现「先给选项、不执行脚本」），需要用户确认的事项用 `confirm` 覆盖默认措辞。
+- 命令与 ai-kit 里 opencode 侧 `commands-opencode/git/*.md`、`commands-opencode/handoff.md`、`commands-opencode/cleanup.md` 是同一 skill 的多条入口，只声明意图、不重复逻辑。
 - 新增委托型命令后，`REQUIRED_SKILLS` 会自动带上它的技能，`/skill-init` 与 `/skill-update` 无需另改。
 
 ## 跨仓契约
@@ -39,15 +40,18 @@ CI 默认不跑契约校验——它依赖另一仓的技能目录。
 ## 冒烟测试
 
 ```bash
-node scripts/smoke-skill-setup.mjs
+node scripts/smoke-skill-setup.mjs   # stub CLI：安装/软链/并发/超时/作业
+node scripts/smoke-skill-cache.mjs   # 本地 git 源：cache/TTL/refresh/离线/lock 回写
 ```
 
-用 `DSH_COMMANDS_SKILL_CLI` 指向一个 stub 顶替 `npx skills`，在临时 HOME 里覆盖：
+`smoke-skill-setup` 用 `DSH_COMMANDS_SKILL_CLI` 指向一个 stub 顶替 `skills` CLI，在临时 HOME 里覆盖：
 
 - 「缺失 → 装 + 软链 / 已托管 → 跳过 / 非托管软链 → 替换 / 真实目录 → 拒绝覆盖 / 任意来源安装 / 更新」六条路径；
 - 全程不联网、不碰真实 `~/.dsh`，也不会产生备份目录；
 - 失败回执剥框线、ANSI 与 CLI logo，网络不可达时给代理/镜像提示；
-- 过程可见层用假 jobs 注册表断言「只启动一个作业 / kind·owner·label 透传 / 阶段文案刷新 / CLI 输出流入面板 / 结算前已 `wait`（awaited，不投通知）/ 结果带回作业视图 / 作业被停止返回 killed / 取消只 kill 不抢跑 / jobs 缺失与无控制器降级 / `apply()` 注册的 handler 端到端跑通（13 条命令、回执带作业 id）」，共六十余项断言。
+- 过程可见层用假 jobs 注册表断言「只启动一个作业 / kind·owner·label 透传 / 阶段文案刷新 / CLI 输出流入面板 / 结算前已 `wait`（awaited，不投通知）/ 结果带回作业视图 / 作业被停止返回 killed / 取消只 kill 不抢跑 / jobs 缺失与无控制器降级 / `apply()` 注册的 handler 端到端跑通（14 条命令、/cleanup 无参数注入「先给选项」、回执带作业 id）」，共八十余项断言。
+
+`smoke-skill-cache` 用临时 git 源验证首次 clone、TTL 命中、refresh 更新、`ttl<0` 离线、fetch 失败回退、`--json` 解析与 lock 来源/40 位 git tree hash 回写（24 项，不联网）。
 
 改动 `lib/job-progress.js` 前先读 `scripts/smoke-skill-setup.mjs` 顶部注释：它记录了「为什么只能用 `wait` 收尾」以及 dsh 侧的行号证据。
 
@@ -56,10 +60,10 @@ node scripts/smoke-skill-setup.mjs
 `.github/workflows/check.yml` 在 PR 上机械校验：
 
 - 发布脚本语法（`bash -n scripts/ci-publish.sh`）；
-- 插件语法（`node --check lib/index.js lib/skill-setup.js lib/job-progress.js` 与冒烟脚本）；
+- 插件语法（`node --check lib/index.js lib/skill-setup.js lib/skill-cache.js lib/job-progress.js` 与冒烟脚本）；
 - 包名 / 模块标识符 / 插件名三处一致（`scripts/check-naming.mjs`）；
 - 打包内容白名单（`scripts/check-pack.mjs`，防止 `.dsh/` 草稿、`node_modules`、`*.tgz` 混进 npm tarball）；
-- 技能自举冒烟（`scripts/smoke-skill-setup.mjs`）。
+- 技能自举冒烟（`scripts/smoke-skill-setup.mjs`）与缓存冒烟（`scripts/smoke-skill-cache.mjs`）。
 
 ## 命名约定
 
@@ -74,8 +78,11 @@ node scripts/smoke-skill-setup.mjs
 用 `link:` 方式接入，源码即时生效，不依赖 npm 版本：
 
 ```bash
+npm install        # link 不会代装 dependencies；装 skills 依赖后才会走「直接调用 CLI」
 dsh plugin --profile <profile> add link:/绝对路径/dsh-commands
 # 重启 dsh web
 ```
+
+没装 `skills` 依赖也能跑：`resolveCli` 会回退 `npx -y skills`，只是每次多 2–3s 的 npx 启动。
 
 若 profile 里装的是 npm 版，profile 下的 `node_modules` 是一份**拷贝**，改仓库源码不会生效，需先升版本发版再重装。

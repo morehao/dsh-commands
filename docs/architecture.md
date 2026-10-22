@@ -1,6 +1,6 @@
 # 架构与原理
 
-本仓只做 **dsh 分发/适配单元**：一张意图表 + locale/icon + 发布链，**不含任何 skill 逻辑**。技能本身由 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 提供；命令与 ai-kit 里 opencode 侧的 `commands-opencode/git/*.md`、`commands-opencode/handoff.md`、以及自然语言触发，是同一条 skill 的多条入口，只声明意图、不重复逻辑。
+本仓只做 **dsh 分发/适配单元**：一张意图表 + locale/icon + 发布链，**不含任何 skill 逻辑**。技能本身由 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 提供；命令与 ai-kit 里 opencode 侧的 `commands-opencode/git/*.md`、`commands-opencode/handoff.md`、`commands-opencode/cleanup.md`、以及自然语言触发，是同一条 skill 的多条入口，只声明意图、不重复逻辑。
 
 ## 命令 = 意图表
 
@@ -43,6 +43,14 @@ user 消息由 `userMessage()` **手工构造**，形态与官方 `createUserMes
 
 > 若 `skill` 工具报 `not available for model invocation`，改用 `read` 工具读取 `$DSH_HOME/skills/handoff/SKILL.md`（`DSH_HOME` 通常为 `~/.dsh`），需要时再读同目录下的 `references/`。
 
+### cleanup 的无参数语义
+
+`disk-cleanup` 的 `SKILL.md` 第 0 步规定：用户没有文字说明时**不执行任何脚本**，先给编号选项（只看占用 / 选勾清理 / 只处理本地数据库 / 取消），等用户选。通用语「未附加说明，按分支流程默认处理」会把模型推向直接开跑，所以 `/cleanup` 在 `COMMANDS` 里置 `noInput`，无参数时注入：
+
+> 用户未附加说明：按 SKILL.md 第 0 步先给出编号选项（…），等用户选择后再继续；不要执行任何脚本，也不要替用户选默认项。
+
+带参数时则按 `confirm` 提示需要用户决策的事项（清理范围 / 清理项编码），与其它命令一致。
+
 ## 会话记录：`recordInput`
 
 委托型命令统一注册 `recordInput: false`。
@@ -59,11 +67,11 @@ dsh 只本地化它自己的 6 条一方命令：客户端 `HOST_DESCRIPTION_KEY
 
 第三方也**无法**用同名客户端 `CommandContribution` 覆盖：同名会在候选合成时以 `collides with a host command` 直接抛错；`CommandDecoration` 又**没有** `description` 字段。Host 侧同样拿不到语言偏好——`SettingsProvider` 只提供 `register()`，namespace `locale` 已被 locale 插件独占（重复注册会抛错），且 `locale.preference` 缺省时本就交给浏览器 `navigator.language` 决定。
 
-因此本插件 13 条命令描述直接写中文：中文界面下与一方命令表现一致。若将来 dsh 开放第三方描述 i18n 钩子，再改为按键取值。
+因此本插件 14 条命令描述直接写中文：中文界面下与一方命令表现一致。若将来 dsh 开放第三方描述 i18n 钩子，再改为按键取值。
 
 ## 生效与重启
 
-- 编辑技能（`$DSH_HOME/skills/git-kit/`、`$DSH_HOME/skills/handoff/`）**无需重启**，下次执行即生效——技能由 ai-kit 提供，与本插件版本无关。技能根有 watcher，安装完也免重启。
+- 编辑技能（`$DSH_HOME/skills/git-kit/`、`$DSH_HOME/skills/handoff/`、`$DSH_HOME/skills/disk-cleanup/`）**无需重启**，下次执行即生效——技能由 ai-kit 提供，与本插件版本无关。技能根有 watcher，安装完也免重启。
 - 修改本插件 `lib/index.js`（含 `COMMANDS` 表）需重启 dsh web 生效。
 - **只有以 `link:` 方式接入时改源码才生效**：若 profile 里装的是 npm 版（`dsh plugin --profile web add @morehao/dsh-commands`），profile 下的 `node_modules` 是一份**拷贝**，改仓库源码不会生效，需先升版本发版再重装。
 
@@ -83,4 +91,5 @@ dsh 的插件页（侧栏「插件」→ 组合包详情与组件行）在**不�
 
 - `branch` 必须与对应 `SKILL.md` 决策树的分支 key 一致（即 `references/<branch>.md`）；`skill` 省略时默认 `git-kit`。
 - `hint` + `required` 决定输入提示与校验；`description` 会原样出现在斜杠菜单（见上文 i18n 说明）。
+- 技能对「无参数」有专门语义时（如 `/cleanup` 必须先问再动），用 `noInput` 覆盖默认注入语；有参数时需要用户确认的事项用 `confirm` 覆盖 git 语境的默认措辞。
 - 新增后跑一次跨仓契约校验：`node scripts/check-skill-contract.mjs`，详见 [开发与测试](./development.md)。技能未安装时它无法通过，先 `/skill-init`。

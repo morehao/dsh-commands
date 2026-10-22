@@ -1,6 +1,6 @@
 # dsh-commands
 
-一个可扩展的 **dsh 原生斜杠命令集合包**（npm：`@morehao/dsh-commands`）。把 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 的 **git-kit**（Git 工作流）与 **handoff**（跨会话交接）接入为 dsh 命令。
+一个可扩展的 **dsh 原生斜杠命令集合包**（npm：`@morehao/dsh-commands`）。把 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 的 **git-kit**（Git 工作流）、**handoff**（跨会话交接）与 **disk-cleanup**（磁盘空间回收）接入为 dsh 命令。
 
 命令只声明「命令 → 技能分支」的意图，执行逻辑与唯一真源在对应 skill 里，因此与 opencode 入口、自然语言触发共用同一套实现。本仓不含 skill 逻辑；将来其它 skill 的命令，往 `lib/index.js` 的 `COMMANDS` 表加一行即可。
 
@@ -20,6 +20,7 @@
 | `/git-slim` | `[保留天数]` | git-kit → slim |
 | `/git-star-classify` | 无 | git-kit → star-classify |
 | `/handoff` | `[任务范围]` | handoff → print（只打印，不落盘） |
+| `/cleanup` | `[清理范围]` | disk-cleanup → cleanup（无参数时先给选项，不执行脚本） |
 
 本地执行型（不经 agent，负责把技能装上、软链进 dsh 并保持最新）：
 
@@ -29,7 +30,7 @@
 | `/skill-install` | `<来源> [技能名...]` | 安装任意来源的技能并软链进 dsh |
 | `/skill-update` | `[技能名]` | 把依赖技能更新到上游最新 |
 
-长任务会挂到 dsh 后台任务上：会话头部实时显示阶段，面板里是 `npx skills` 的流式输出，可两击停止，且不触发模型回合。详见 [技能自举](./docs/skill-setup.md) 与 [过程可见](./docs/job-progress.md)。
+长任务会挂到 dsh 后台任务上：会话头部实时显示阶段，面板里是 `skills` CLI 的流式输出，可两击停止，且不触发模型回合。技能来源默认缓存在 `$DSH_HOME/cache/skills-sources`，首次 clone、之后增量 fetch，安装不再每次整仓克隆。详见 [技能自举](./docs/skill-setup.md) 与 [过程可见](./docs/job-progress.md)。
 
 ## 安装
 
@@ -40,9 +41,9 @@
 dsh plugin --profile <profile> add @morehao/dsh-commands
 ```
 
-装完在 dsh 里执行 `/skill-init`：检查 `git-kit` / `handoff`，缺失则用 `npx skills` 全局安装并软链进 `$DSH_HOME/skills`（默认 `~/.dsh/skills`），已托管则跳过；之后用 `/skill-update` 跟上游。
+装完在 dsh 里执行 `/skill-init`：检查 `git-kit` / `handoff` / `disk-cleanup`，缺失则从本地缓存（首次自动 clone）用 `skills` CLI 全局安装并软链进 `$DSH_HOME/skills`（默认 `~/.dsh/skills`）；已托管且缓存 TTL 内与 lock 一致则跳过，TTL 过期会检查上游，有变化才重装。之后用 `/skill-update` 强制跟上游。安装结果仍是标准的 `~/.agents/skills` + `.skill-lock.json`，其他 agent 可以继续用 `npx skills`。
 
-装好后直接输入 `/` 选择命令，例如 `/git-message 修复登录超时`、`/git-commit-push`、`/handoff`。
+装好后直接输入 `/` 选择命令，例如 `/git-message 修复登录超时`、`/git-commit-push`、`/handoff`、`/cleanup`（不带参数时先给编号选项）。
 
 手工准备技能、可达镜像与环境变量的说明见 [技能自举](./docs/skill-setup.md)；`link:` 本地开发见 [开发与测试](./docs/development.md)。
 
@@ -61,9 +62,10 @@ dsh plugin --profile <profile> add @morehao/dsh-commands
 ```bash
 node scripts/check-skill-contract.mjs   # 命令 → 技能分支的跨仓契约（需技能已安装）
 node scripts/smoke-skill-setup.mjs      # 技能自举 + 过程可见（stub，不联网）
+node scripts/smoke-skill-cache.mjs      # 来源缓存 / TTL / lock 回写（本地 git，不联网）
 ```
 
-CI 在 PR 上校验脚本语法、三处命名一致、打包白名单与技能自举冒烟。扩展命令、测试细节与命名约定见 [开发与测试](./docs/development.md)。
+CI 在 PR 上校验脚本语法、三处命名一致、打包白名单与技能自举/缓存冒烟。扩展命令、测试细节与命名约定见 [开发与测试](./docs/development.md)。
 
 ## 发布
 

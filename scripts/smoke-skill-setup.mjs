@@ -11,6 +11,7 @@
 // 另外校验：全程不产生 skills-backup/ 之类的备份目录（设计上不做备份）。
 import { mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -25,13 +26,24 @@ import { join } from "node:path";
 const argv = process.argv.slice(2);
 await appendFile(process.env.STUB_LOG, JSON.stringify(argv) + "\\n");
 if (process.env.STUB_ENV_LOG) {
-	await appendFile(process.env.STUB_ENV_LOG, JSON.stringify({ cloneTimeout: process.env.SKILLS_CLONE_TIMEOUT_MS ?? null }) + "\\n");
+	await appendFile(process.env.STUB_ENV_LOG, JSON.stringify({
+		cloneTimeout: process.env.SKILLS_CLONE_TIMEOUT_MS ?? null,
+		gitPrompt: process.env.GIT_TERMINAL_PROMPT ?? null,
+	}) + "\\n");
+}
+if (process.env.STUB_HANG === "1") {
+	setInterval(() => {}, 1000);
+	await new Promise(() => {});
+}
+if (process.env.STUB_SLEEP_MS) {
+	await new Promise((resolve) => setTimeout(resolve, Number(process.env.STUB_SLEEP_MS)));
 }
 if (process.env.STUB_NOISE === "1") {
 	// writeSync：一次写 5 KB 的 spinner 必须先落盘再 exit，否则管道里的缓冲会被丢掉
 	let noisy = "███████╗██╗  ██╗██╗██╗     ██╗     ███████╗\\n";
 	noisy += "╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚══════╝\\n";
-	for (let i = 0; i < 200; i += 1) noisy += "◒  Cloning repository" + ".".repeat(i % 4) + "…\\r";
+	const glyphs = ["◒", "◐", "◓", "◑"];
+	for (let i = 0; i < 200; i += 1) noisy += glyphs[i % glyphs.length] + "  Cloning repository" + ".".repeat(i % 4) + "…\\r";
 	noisy += "\\nFailed to connect to github.com port 443 after 75002 ms: Couldn't connect to server\\n";
 	writeSync(1, noisy);
 	process.exit(1);
@@ -45,7 +57,7 @@ const source = argv[1];
 const skills = [];
 for (let i = 0; i < argv.length; i++) if (argv[i] === "--skill") skills.push(argv[++i]);
 if (skills.length === 0) skills.push("demo-a", "demo-b");
-const branches = { "git-kit": ["commit-push","commit-message","branch","pr-create","pr-merge","tag","release","slim","star-classify"] };
+const branches = { "git-kit": ["commit-push","commit-message","branch","pr-create","pr-merge","tag","release","slim","star-classify"], "disk-cleanup": ["cleanup"] };
 for (const name of skills) {
 	const dir = join(homedir(), ".agents", "skills", name);
 	await mkdir(dir, { recursive: true });
@@ -100,12 +112,68 @@ try {
 	process.env.STUB_ENV_LOG = stubEnvLog;
 	process.env.DSH_COMMANDS_SKILL_TIMEOUT_MS = "60000";
 
-	const { runSkillInit, runSkillUpdate, resolveSkillSource } = await import("../lib/skill-setup.js");
+	const {
+		runSkillInit,
+		runSkillInstall,
+		runSkillUpdate,
+		resolveSkillSource,
+		probeUrlForSource,
+		probeSourceReachability,
+		jobSkipReason,
+	} = await import("../lib/skill-setup.js");
 	const { COMMANDS } = await import("../lib/index.js");
 	check(resolveSkillSource({}) === "morehao/ai-kit", "来源：默认 morehao/ai-kit");
 	check(
 		resolveSkillSource({ DSH_COMMANDS_SKILL_SOURCE: "acme/mirror" }) === "acme/mirror",
 		"来源：DSH_COMMANDS_SKILL_SOURCE 可覆盖（镜像/本地目录逃生口）",
+	);
+
+	// ---- 0) 连通性预检：来源 → URL 归一化 -----------------------------------
+	check(
+		probeUrlForSource("morehao/ai-kit") === "https://github.com/morehao/ai-kit.git",
+		"预检：owner/repo 归一为 GitHub HTTPS",
+		probeUrlForSource("morehao/ai-kit"),
+	);
+	check(
+		probeUrlForSource("https://github.com/morehao/ai-kit.git") === "https://github.com/morehao/ai-kit.git",
+		"预检：HTTPS URL 原样使用",
+		probeUrlForSource("https://github.com/morehao/ai-kit.git"),
+	);
+	check(
+		probeUrlForSource("git+https://gitlab.com/acme/tools.git") === "https://gitlab.com/acme/tools.git",
+		"预检：去掉 git+ 前缀",
+		probeUrlForSource("git+https://gitlab.com/acme/tools.git"),
+	);
+	check(
+		probeUrlForSource("git@github.com:morehao/ai-kit.git") === "git@github.com:morehao/ai-kit.git",
+		"预检：SSH scp 语法原样使用",
+		probeUrlForSource("git@github.com:morehao/ai-kit.git"),
+	);
+	check(
+		probeUrlForSource("./local-skill") === undefined && probeUrlForSource("~/ai-kit/skills/svg-maker") === undefined,
+		"预检：本地路径不联网探测",
+	);
+	const skippedProbe = await probeSourceReachability("morehao/ai-kit", {
+		env: { DSH_COMMANDS_SKILL_PROBE_MS: "0" },
+	});
+	check(skippedProbe.status === "skipped", "预检：超时设为 0 时跳过", JSON.stringify(skippedProbe));
+	const abortedProbe = await probeSourceReachability("morehao/ai-kit", {
+		env: { DSH_COMMANDS_SKILL_PROBE_MS: "8000" },
+		signal: AbortSignal.abort(),
+	});
+	check(abortedProbe.status === "skipped", "预检：命令已取消时不联网", JSON.stringify(abortedProbe));
+
+	// 假 git 卡住：预检必须在自己的超时内杀掉它，而不是等硬超时
+	const fakeBin = join(root, "fake-bin");
+	await mkdir(fakeBin, { recursive: true });
+	await writeFile(join(fakeBin, "git"), "#!/bin/sh\nexec sleep 5\n", { mode: 0o755 });
+	const timedOutProbe = await probeSourceReachability("acme/slow", {
+		env: { PATH: fakeBin, DSH_COMMANDS_SKILL_PROBE_MS: "120" },
+	});
+	check(
+		timedOutProbe.status === "unreachable" && timedOutProbe.timedOut === true,
+		"预检：git 卡住时按预检超时快速失败",
+		JSON.stringify(timedOutProbe),
 	);
 
 	const canonical = (name) => join(home, ".agents", "skills", name);
@@ -117,12 +185,16 @@ try {
 
 	// ---- 1) missing → 安装 + 软链 -------------------------------------------
 	let text = await runSkillInit(COMMANDS, {});
-	check(text.includes("✓ git-kit") && text.includes("✓ handoff"), "init：缺失技能被安装", text);
+	check(
+		text.includes("✓ git-kit") && text.includes("✓ handoff") && text.includes("✓ disk-cleanup"),
+		"init：缺失技能被安装",
+		text,
+	);
 	check(existsSync(join(canonical("git-kit"), "SKILL.md")), "init：canonical 目录已生成");
 	check(
-		existsSync(linkPath("git-kit")) && existsSync(linkPath("handoff")),
-		"init：两个技能都软链进 $DSH_HOME/skills",
-		`${linkPath("git-kit")} / ${linkPath("handoff")}`,
+		existsSync(linkPath("git-kit")) && existsSync(linkPath("handoff")) && existsSync(linkPath("disk-cleanup")),
+		"init：三个技能都软链进 $DSH_HOME/skills",
+		`${linkPath("git-kit")} / ${linkPath("handoff")} / ${linkPath("disk-cleanup")}`,
 	);
 	check((await readlinkOrError(linkPath("git-kit"))) === canonical("git-kit"), "init：软链指向 canonical 目录");
 	check(!text.includes("契约问题"), "init：契约校验无失败项", text);
@@ -134,7 +206,7 @@ try {
 		JSON.stringify(argv0),
 	);
 	check(
-		argv0.filter((arg) => arg === "--skill").length === 2,
+		argv0.filter((arg) => arg === "--skill").length === 3,
 		"init：只为缺失技能传 --skill",
 		JSON.stringify(argv0),
 	);
@@ -144,12 +216,13 @@ try {
 		"cli：克隆超时比外层硬超时早 30s（60000 → 30000），避免被 SIGKILL 截断诊断",
 		JSON.stringify(cliEnv),
 	);
+	check(cliEnv.gitPrompt === "0", "cli：GIT_TERMINAL_PROMPT=0，凭据提示不会让命令无限挂起", JSON.stringify(cliEnv));
 
 	// ---- 2) 已托管 → 跳过且不调 CLI -----------------------------------------
 	const callsBefore = await stubCalls();
 	text = await runSkillInit(COMMANDS, {});
 	check(text.includes("已托管，跳过"), "init 幂等：已托管技能跳过", text);
-	check(text.startsWith("✓ 无需操作："), "init 幂等：首行是结论式「无需操作」", text);
+	check(text.startsWith("✓ 已是最新："), "init 幂等：首行是结论式「已是最新」", text);
 	check((await stubCalls()) === callsBefore, "init 幂等：未再次调用 CLI");
 
 	// ---- 3) unmanaged（本地 clone 软链）→ 替换，不做备份 --------------------
@@ -165,7 +238,11 @@ try {
 	// ---- 4) /skill-update ---------------------------------------------------
 	const callsBeforeUpdate = await stubCalls();
 	text = await runSkillUpdate(COMMANDS, "", {});
-	check(text.includes("✓ git-kit") && text.includes("✓ handoff"), "update：两个托管技能都更新", text);
+	check(
+		text.includes("✓ git-kit") && text.includes("✓ handoff") && text.includes("✓ disk-cleanup"),
+		"update：三个托管技能都更新",
+		text,
+	);
 	check((await stubCalls()) === callsBeforeUpdate + 1, "update：只调用一次 CLI（批量）");
 	check(existsSync(join(linkPath("git-kit"), "SKILL.md")), "update：软链仍可读");
 
@@ -194,12 +271,36 @@ try {
 	check(!text.includes("✓ git-kit"), "init：不受影响的技能不被重复处理", text);
 
 	// ---- 6) /skill-install：任意来源 ---------------------------------------
-	const { runSkillInstall } = await import("../lib/skill-setup.js");
-
 	await runSkillInstall(COMMANDS, "", {}).then(
 		() => check(false, "install：缺来源时应报错"),
 		(error) => check(String(error.message).includes("缺少来源"), "install：缺来源报错", String(error.message)),
 	);
+
+	// 连不上来源：不启动 CLI，几秒内给出可操作错误（用本机 1 端口模拟网络不通）
+	if (spawnSync("git", ["--version"], { stdio: "ignore" }).status === 0) {
+		const savedCli = process.env.DSH_COMMANDS_SKILL_CLI;
+		const savedProbe = process.env.DSH_COMMANDS_SKILL_PROBE_MS;
+		delete process.env.DSH_COMMANDS_SKILL_CLI;
+		process.env.DSH_COMMANDS_SKILL_PROBE_MS = "2000";
+		let unreachableError = "";
+		const probeStartedAt = Date.now();
+		try {
+			await runSkillInstall(COMMANDS, "http://127.0.0.1:1/x.git demo-a", {});
+		} catch (error) {
+			unreachableError = String(error.message);
+		}
+		const probeElapsed = Date.now() - probeStartedAt;
+		if (savedCli === undefined) delete process.env.DSH_COMMANDS_SKILL_CLI;
+		else process.env.DSH_COMMANDS_SKILL_CLI = savedCli;
+		if (savedProbe === undefined) delete process.env.DSH_COMMANDS_SKILL_PROBE_MS;
+		else process.env.DSH_COMMANDS_SKILL_PROBE_MS = savedProbe;
+		check(
+			unreachableError.includes("连不上技能来源") && unreachableError.includes("代理"),
+			"预检：明确网络不通时快速失败并给代理/镜像提示",
+			unreachableError,
+		);
+		check(probeElapsed < 10_000, "预检：失败发生在硬超时之前", `${probeElapsed}ms`);
+	}
 
 	const callsBeforeInstall = await stubCalls();
 	text = await runSkillInstall(COMMANDS, "acme/toolkit tech-design", {});
@@ -220,6 +321,12 @@ try {
 		"install：软链指向 canonical",
 	);
 	check((await stubCalls()) === callsBeforeInstall + 1, "install：只调用一次 CLI");
+	const installSkip = await jobSkipReason("skill-install", COMMANDS, "acme/toolkit tech-design");
+	check(
+		typeof installSkip === "string" && installSkip.includes("tech-design"),
+		"install：已托管的显式技能不建作业（jobSkipReason）",
+		String(installSkip),
+	);
 
 	// 装"全部"：CLI 未收到 --skill，靠 canonical 目录 diff 找出新技能；
 	// 同时把 demo-a 预先做成真实目录，验证 install 也拒绝覆盖真实目录。
@@ -233,6 +340,43 @@ try {
 		(await readlinkOrError(linkPath("demo-b"))) === canonical("demo-b"),
 		"install：diff 发现的技能也被软链",
 	);
+
+	// ---- 6b) 并发保护：第二次 Enter 不再并行克隆 ---------------------------
+	process.env.STUB_SLEEP_MS = "400";
+	const firstInstall = runSkillInstall(COMMANDS, "acme/slow slow-a", {});
+	await new Promise((resolve) => setTimeout(resolve, 80));
+	let concurrentError = "";
+	try {
+		await runSkillInstall(COMMANDS, "acme/slow slow-a", {});
+	} catch (error) {
+		concurrentError = String(error.message);
+	}
+	check(concurrentError.includes("已有技能安装任务正在进行"), "并发：第二次安装被拒绝（不重复克隆）", concurrentError);
+	const firstInstallText = await firstInstall;
+	check(firstInstallText.includes("slow-a"), "并发：第一次安装正常完成", firstInstallText);
+	delete process.env.STUB_SLEEP_MS;
+
+	// ---- 6c) 硬超时：错误写明"超时/强制终止"，且锁会释放 ---------------------
+	process.env.STUB_HANG = "1";
+	process.env.DSH_COMMANDS_SKILL_TIMEOUT_MS = "1200";
+	const timeoutStartedAt = Date.now();
+	let timeoutError = "";
+	try {
+		await runSkillUpdate(COMMANDS, "git-kit", {});
+	} catch (error) {
+		timeoutError = String(error.message);
+	}
+	const timeoutElapsed = Date.now() - timeoutStartedAt;
+	delete process.env.STUB_HANG;
+	process.env.DSH_COMMANDS_SKILL_TIMEOUT_MS = "60000";
+	check(
+		timeoutError.includes("更新超时") && timeoutError.includes("已强制终止"),
+		"超时：回执写明超时与强制终止（不再是退出码 SIGKILL）",
+		timeoutError,
+	);
+	check(timeoutElapsed < 5_000, "超时：按 DSH_COMMANDS_SKILL_TIMEOUT_MS 及时收敛", `${timeoutElapsed}ms`);
+	text = await runSkillUpdate(COMMANDS, "git-kit", {});
+	check(text.includes("✓ git-kit：已更新到最新"), "并发/超时：失败后锁已释放，下一次仍可执行", text);
 
 	// ---- 7) 未托管/缺失时 update 只提示 -------------------------------------
 	text = await runSkillUpdate(COMMANDS, "", {});
@@ -351,7 +495,7 @@ try {
 		owner: "session-1",
 		kind: "skill-init",
 		label: "x",
-		skip: "git-kit、handoff 均已托管，没有需要安装或修复的技能",
+		skip: "git-kit、handoff、disk-cleanup 均已托管，没有需要安装或修复的技能",
 		work: () => runSkillInit(COMMANDS, {}),
 	});
 	check(idleJobs.state.starts.length === 0, "无事可做：没有启动作业", JSON.stringify(idleJobs.state.starts));
@@ -487,8 +631,8 @@ try {
 		},
 	});
 	check(
-		registered.size === 13 && registered.has("skill-init") && registered.has("git-message"),
-		"e2e：注册了 13 条命令（10 委托 + 3 本地）",
+		registered.size === 14 && registered.has("skill-init") && registered.has("git-message") && registered.has("cleanup"),
+		"e2e：注册了 14 条命令（11 委托 + 3 本地）",
 		[...registered.keys()].join(","),
 	);
 	const e2eResult = await registered.get("skill-init").handler({
@@ -499,6 +643,54 @@ try {
 	check(e2eResult.kind === "success" && e2eResult.text.includes("技能依赖检查 ·"), "e2e：/skill-init 返回结构化回执", e2eResult.text);
 	check(e2eResult.text.includes("过程：作业 skill-init-fake"), "e2e：回执末行指向作业", e2eResult.text);
 	check(e2eJobs.state.starts[0]?.owner === "session-e2e", "e2e：作业 owner 是当前会话", JSON.stringify(e2eJobs.state.starts[0]));
+
+	// /cleanup 与其它命令不同：无参数时必须先问再动（技能第 0 步），不能被通用语带去直接执行。
+	let cleanupMessage;
+	const cleanupResult = registered.get("cleanup").handler({
+		rawInput: "",
+		signal: undefined,
+		agent: {
+			session: { id: "session-e2e" },
+			followup(message) {
+				cleanupMessage = message;
+			},
+		},
+	});
+	const cleanupText = cleanupMessage?.content?.[0]?.text ?? "";
+	check(
+		cleanupResult.kind === "success" && cleanupResult.text.includes("disk-cleanup cleanup"),
+		"e2e：/cleanup 委托到 disk-cleanup 的 cleanup 分支",
+		cleanupResult.text,
+	);
+	check(
+		cleanupText.includes("编号选项") && cleanupText.includes("不要执行任何脚本"),
+		"e2e：/cleanup 无参数时注入第 0 步「先给选项、不跑脚本」",
+		cleanupText,
+	);
+	check(!cleanupText.includes("按分支流程默认处理"), "e2e：/cleanup 无参数时不带通用的默认处理措辞", cleanupText);
+	check(
+		cleanupMessage?.role === "user" && cleanupMessage?.source?.kind === "user",
+		"e2e：/cleanup 注入的是一条 user 消息",
+		JSON.stringify({ role: cleanupMessage?.role, source: cleanupMessage?.source }),
+	);
+
+	let cleanupArgsMessage;
+	registered.get("cleanup").handler({
+		rawInput: "看看什么最占地方",
+		signal: undefined,
+		agent: {
+			session: { id: "session-e2e" },
+			followup(message) {
+				cleanupArgsMessage = message;
+			},
+		},
+	});
+	const cleanupArgsText = cleanupArgsMessage?.content?.[0]?.text ?? "";
+	check(
+		cleanupArgsText.includes("看看什么最占地方") && cleanupArgsText.includes("清理项编码"),
+		"e2e：/cleanup 带参数时原样透传范围并提示勾选编码",
+		cleanupArgsText,
+	);
 } finally {
 	await rm(root, { recursive: true, force: true });
 }
