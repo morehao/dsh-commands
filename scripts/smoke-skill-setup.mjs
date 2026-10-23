@@ -598,7 +598,12 @@ try {
 	const e2eJobs = createFakeJobs();
 	apply({
 		effect: (generator) => driveEffect(generator),
-		get: (name) => (name === "jobs" ? e2eJobs.api : undefined),
+		get: (name) =>
+			name === "jobs"
+				? e2eJobs.api
+				: name === "clientModules"
+					? { graph: () => ({ entries: [{ id: "@morehao/dsh-commands" }] }) }
+					: undefined,
 		commands: {
 			register(definition) {
 				registered.set(definition.name, definition);
@@ -629,7 +634,8 @@ try {
 	const e2eLines = e2eResult.text.split("\n");
 	check(e2eLines[0]?.includes("· 后台作业"), "e2e：首行带后台作业标记", e2eLines[0]);
 	check(e2eLines[1]?.startsWith("过程：作业"), "e2e：过程提示在第二行", e2eLines[1]);
-	check(e2eLines[2]?.startsWith("技能："), "e2e：技能明细从第三行开始", e2eLines[2]);
+	check(e2eLines[2]?.startsWith("客户端：命令卡已加载"), "e2e：客户端卡状态在第三行", e2eLines[2]);
+	check(e2eLines[3]?.startsWith("技能："), "e2e：技能明细从第四行开始", e2eLines[3]);
 	check(e2eResult.text.includes("过程：作业 skill-init-fake"), "e2e：回执第二行指向作业", e2eResult.text);
 	check(e2eJobs.state.starts[0]?.owner === "session-e2e", "e2e：作业 owner 是当前会话", JSON.stringify(e2eJobs.state.starts[0]));
 
@@ -974,6 +980,152 @@ try {
 		JSON.stringify(changedArgv),
 	);
 	check(changedText.startsWith("✅ 已完成"), "init：重装后首行是完成结论", changedText);
+
+	// ---- 12) 客户端卡自证：client half 没加载时必须写在回执里 -----------------
+	// 真实故障：desktop host 先启动、插件后安装，client half 不进 boot graph，
+	// 自绘命令卡/完成提示/未读点全部静默 —— 回执必须自己说出来。
+	const mountWith = (clientModules, userQuestions) => {
+		const mounted = new Map();
+		const jobs = createFakeJobs();
+		apply({
+			effect: (generator) => driveEffect(generator),
+			get: (name) =>
+				name === "jobs"
+					? jobs.api
+					: name === "clientModules"
+						? clientModules
+						: name === "userQuestions"
+							? userQuestions
+							: undefined,
+			commands: {
+				register(definition) {
+					mounted.set(definition.name, definition);
+					return () => mounted.delete(definition.name);
+				},
+			},
+		});
+		return mounted.get("skill-init");
+	};
+
+	const missingClient = await mountWith({
+		graph: () => ({ entries: [{ id: "@deepseek-ai/dsh-api-gateway" }] }),
+	}).handler({ rawInput: "", signal: undefined, agent: { session: { id: "session-client-missing" } } });
+	check(
+		missingClient.text.startsWith("✓ 无变更") && missingClient.text.includes("客户端未加载"),
+		"客户端：client half 不在 boot graph 时首行标「客户端未加载」",
+		missingClient.text,
+	);
+	check(
+		missingClient.text.includes("重启 dsh 后生效"),
+		"客户端：给出重启 dsh 的下一步",
+		missingClient.text,
+	);
+
+	const unknownClient = await mountWith(undefined).handler({
+		rawInput: "",
+		signal: undefined,
+		agent: { session: { id: "session-client-unknown" } },
+	});
+	check(
+		unknownClient.text.includes("客户端：命令卡状态未知"),
+		"客户端：clientModules 不可用时标「状态未知」而非假装已加载",
+		unknownClient.text,
+	);
+
+	// ---- 13) 执行报告：默认唤醒一轮让 agent 复核（blank 会话只由 turn/start 解除） ----
+	const woken = [];
+	const injected = [];
+	const reviewAgent = {
+		session: { id: "session-review" },
+		followup(message) {
+			woken.push(message);
+		},
+		inject(message) {
+			injected.push(message);
+		}
+	};
+	const reviewHandler = mountWith({ graph: () => ({ entries: [{ id: "@morehao/dsh-commands" }] }) });
+	const reviewResult = await reviewHandler.handler({
+		rawInput: "",
+		signal: undefined,
+		agent: reviewAgent
+	});
+	const report = woken.at(-1);
+	const reportText = String(report?.content?.[0]?.text ?? "");
+	check(
+		woken.length === 1 && injected.length === 0,
+		"报告：默认 followup 唤醒一轮（不是 inject）",
+		JSON.stringify({ woken: woken.length, injected: injected.length }),
+	);
+	check(
+		report.role === "user" && report.source?.kind === "dsh-commands" && report.source?.form === "notice",
+		"报告：以 notice 形式呈现，不会变成一张大用户气泡",
+		JSON.stringify(report?.source ?? null),
+	);
+	check(
+		reportText.startsWith("/skill-init：") && reportText.includes("无变更"),
+		"报告：正文带命令名与回执结论",
+		reportText.split("\n").slice(0, 2).join(" / "),
+	);
+	check(
+		reportText.includes("不需要你再执行或重跑") && reportText.includes("不要调用任何工具"),
+		"报告：附复核指令并约束住模型（不跑命令、不调工具）",
+		reportText.slice(-160),
+	);
+	check(
+		String(report?.source?.summary ?? "").includes("/skill-init 完成"),
+		"报告：summary 说明完成还是失败",
+		String(report?.source?.summary ?? ""),
+	);
+	check(
+		reviewResult.text.startsWith("✓ 无变更") && woken.length === 1,
+		"报告：唤醒不影响命令回执本身",
+		reviewResult.text.split("\n")[0],
+	);
+
+	// 取消：只 inject 记录一行，不打扰模型。
+	woken.length = 0;
+	injected.length = 0;
+	await rm(linkPath("git-kit"), { force: true });
+	const cancelHandler = mountWith({ graph: () => ({ entries: [{ id: "@morehao/dsh-commands" }] }) }, {
+		async ask(request) {
+			return { answers: [{ id: request.questions[0].id, selected: ["取消"] }] };
+		}
+	});
+	const cancelResult = await cancelHandler.handler({ rawInput: "", signal: undefined, agent: reviewAgent });
+	check(cancelResult.text.includes("已取消 /skill-init"), "报告：取消时回执不变", cancelResult.text);
+	check(
+		woken.length === 0 &&
+			injected.length === 1 &&
+			String(injected.at(-1)?.content?.[0]?.text ?? "").includes("已取消"),
+		"报告：取消只记录一行，不唤醒模型",
+		JSON.stringify({ woken: woken.length, injected: injected.length }),
+	);
+
+	// 非法参数（错误出口）同样要交给会话复核。
+	woken.length = 0;
+	injected.length = 0;
+	const badArgHandler = mountWith({ graph: () => ({ entries: [{ id: "@morehao/dsh-commands" }] }) });
+	const badArgResult = await badArgHandler.handler({ rawInput: "--bogus", signal: undefined, agent: reviewAgent });
+	check(badArgResult.kind === "error", "报告：非法参数按错误返回", badArgResult.text.split("\n")[0]);
+	check(
+		woken.length === 1 && String(woken.at(-1)?.source?.summary ?? "").includes("/skill-init 失败"),
+		"报告：错误出口也交给会话（summary 标失败）",
+		String(woken.at(-1)?.source?.summary ?? ""),
+	);
+
+	// DSH_COMMANDS_SKILL_NOTIFY=notice 时降级为零 token 记录。
+	woken.length = 0;
+	injected.length = 0;
+	process.env.DSH_COMMANDS_SKILL_NOTIFY = "notice";
+	const quietHandler = mountWith({ graph: () => ({ entries: [{ id: "@morehao/dsh-commands" }] }) });
+	await quietHandler.handler({ rawInput: "", signal: undefined, agent: reviewAgent });
+	delete process.env.DSH_COMMANDS_SKILL_NOTIFY;
+	check(
+		woken.length === 0 && injected.length === 1,
+		"报告：DSH_COMMANDS_SKILL_NOTIFY=notice 时只记录不唤醒",
+		JSON.stringify({ woken: woken.length, injected: injected.length }),
+	);
 } finally {
 	await rm(root, { recursive: true, force: true });
 }

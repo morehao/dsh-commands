@@ -4,6 +4,14 @@
 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 的 `commands-dsh/` 目录发布，
 2026-10 起在本仓发布；npm 包名未变，版本号连续。
 
+## [未发布]
+
+### 修复
+
+- **命令结论交给 agent 复核，不再依赖对话流**：`/skill-init` 每条出口都会发一条 `form: "notice"` 的执行报告（回执全文 + 「只复核、不要重跑/调工具」的指令），默认用 `agent.followup()` 唤醒一轮，由 agent 回 2–3 行结论。原因：命令卡只活在对话流里，而 dsh 的会话 `blank` **只由 `turn/start` 解除**（`dsh-api-session-controller` 的 `applySessionListMetadata`），命令事件与 `inject()` 都不算——所以在新建会话里跑命令，不唤醒一轮就必然什么都看不到（实测：日志有 `command/run` + `command/done`，页面无卡）。命令本体仍是确定性执行，agent 只做复核；**取消**只 `inject()` 记一行不唤醒；`DSH_COMMANDS_SKILL_NOTIFY=notice` 可整体降级为零 token 记录。
+- **`/skill-init` 回执自证客户端卡是否加载**：dsh 的客户端模块表在启动时构建，运行中新装/升级的包不会自动进 boot graph（host half 会被 hmr 热加载，client half 不会），此时自绘命令卡、完成提示、未读点全部静默消失，用户只看到一行通用命令。回执现在按 `ctx.get("clientModules").graph().entries` 判断本包行是否存在：未加载时首行标 `· 客户端未加载`、第三行给「重启 dsh 后生效；Settings → Plugins 可看同步状态」；正常时第三行写「客户端：命令卡已加载（web）」；服务不可用写「状态未知」，不假装已加载。
+- 文档补充这条排障路径（[过程可见](docs/job-progress.md)），并把回执行号约定改为「第二行过程 / 第三行客户端卡 / 第四行起明细」。
+
 ## [v0.2.1] - 2026-10-23
 
 ### 变更
