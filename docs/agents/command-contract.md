@@ -81,7 +81,11 @@
 | 命令点了只回 Usage | `required` 与 `hint`；用户是否真的传了参数 |
 | agent 没按预期分支执行 | `branch` 拼写、`skill` 默认值、技能版本是否落后 |
 | 会话回合崩溃，提示 `source` | `userMessage()` 是否保留 `source: { kind: "user" }` |
-| 命令卡片参数重复 | 是否把委托型 `recordInput` 改成了 `true` |
+| 命令卡片参数重复 | 是否把委托型 `recordInput` 改成了 `true`（本地命令例外：`/skill-init` 的卡片就是要显示参数） |
+| 命令卡标题里没有 `--update` 等参数 | 本地命令的 `recordInput` 是否被改成 `false`（卡片读 `node.args`）；`node.args` 为空时按设计只显示命令名 |
+| 命令卡第二行又重复状态/耗时 | `cardPreview()` 是否退回了回执首行（首行是 `✓/✅/⚠` 状态头，应该跳过） |
+| agent 的回复复述卡片内容 | `REVIEW_INSTRUCTION` 是否被改回「回报结论」；正常应只回「无异常」 |
+| 注入消息的触发行显示「收到执行请求」 | `reportMessage()` 的 `source.kind` 是否还是 `dsh-commands`；应为 `cordis-host-runner`（标题「插件状态更新」） |
 | `/handoff` 加载失败 | `readFallback` 是否还在；技能是否标了 `disable-model-invocation` |
 | `/skill-init` 看不到过程/结果 | 回执首行是否为 `✓/✅/⚠` 结论；第二行是否有「过程：作业 …」；是否被 `--yes` 或降级路径影响 |
 | `/skill-init` 有变更却没弹确认 | `needsConfirmation()` 是否只看到真实目录；`ctx.userQuestions` 是否可用；是否带了 `--yes` 或 `--update` |
