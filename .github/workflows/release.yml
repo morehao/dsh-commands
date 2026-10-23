@@ -31,21 +31,26 @@ concurrency: ${{ github.workflow }}-${{ github.ref }}
 jobs:
   publish:
     name: Publish
-    runs-on: ubuntu-latest
+    # 镜像显式钉版本：ubuntu-latest 自 2026-10-19 起分批迁到 26.04（11-19 完成）。
+    # 发布失败只能补发（tag 已推不可改），所以不跟 latest 漂；要试新镜像就手动改 ubuntu-26.04。
+    runs-on: ubuntu-24.04
     permissions:
       id-token: write   # 必须：OIDC 可信发布
       contents: write   # 必须：发布成功后建 GitHub Release
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7   # v5 起跑在 node24 上（v4 会触发 node20 弃用警告）
         with:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7   # v5 起跑在 node24；v7 不再导出占位 NODE_AUTH_TOKEN，更契合 OIDC
         with:
-          node-version: 22
+          node-version: '22'
           registry-url: https://registry.npmjs.org
+          # 发布链路禁用依赖缓存：setup-node v6 起会自动开 npm 缓存，
+          # 而缓存被污染可能把 OIDC 令牌暴露给攻击者代码（官方 trusted publishing 建议）。
+          package-manager-cache: false
 
       - name: Upgrade npm for trusted publishing
         run: npm install -g npm@latest

@@ -34,6 +34,10 @@ PR 与 push `main` 触发，机械校验：
 - **跨仓契约校验不在 CI**（依赖 agent-skills 技能目录），需要本地跑。
 - `npm run check` 含 client 语法/接线冒烟、命名、打包与两个技能冒烟；不含 `release-notes` 冒烟和其余 `lib/*.js` 的 `node --check`，本地全量按矩阵补。
 - CI 不装依赖、不联网；冒烟用 stub / 本地 git。
+- **两个 workflow 的镜像与 action 版本是显式钉住的**，别顺手改回浮动值：
+  - `runs-on: ubuntu-24.04`（不是 `ubuntu-latest`）：`ubuntu-latest` 自 2026-10-19 起分批迁到 26.04（11-19 完成），校验/发布结果不该随镜像漂移。要试新镜像就单独改成 `ubuntu-26.04` 跑一轮再切。
+  - `actions/checkout@v7` / `actions/setup-node@v7`：v4 跑在 node20 上，GitHub 已提示弃用并强制在 node24 上运行；v5 起改用 node24，v7 是当前主版本。
+  - `release.yml` 的 `setup-node` 额外设 `package-manager-cache: false`：v6 起会自动开 npm 缓存，发布链路不该让缓存接触 OIDC 令牌。
 
 ## 3. 打包与命名
 

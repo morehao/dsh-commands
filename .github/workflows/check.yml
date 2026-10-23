@@ -13,15 +13,19 @@ concurrency: ${{ github.workflow }}-${{ github.ref }}
 jobs:
   check:
     name: Pre-publish checks
-    runs-on: ubuntu-latest
+    # 镜像显式钉版本：ubuntu-latest 自 2026-10-19 起分批迁到 26.04（11-19 完成）。
+    # 校验结果不该随镜像漂移，跟随已验证的 24.04；要试新镜像就改成 ubuntu-26.04 单独跑一轮。
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read   # 只读校验，不写仓库
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7   # v5 起跑在 node24 上（v4 会触发 node20 弃用警告）
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7   # 同上，避免被强制从 node20 迁移
         with:
-          node-version: 22
+          node-version: '22'
 
       - name: 发布脚本语法
         run: bash -n scripts/ci-publish.sh
