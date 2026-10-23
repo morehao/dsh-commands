@@ -984,13 +984,19 @@ try {
 	// ---- 12) 客户端卡自证：client half 没加载时必须写在回执里 -----------------
 	// 真实故障：desktop host 先启动、插件后安装，client half 不进 boot graph，
 	// 自绘命令卡/完成提示/未读点全部静默 —— 回执必须自己说出来。
-	const mountWith = (clientModules) => {
+	const mountWith = (clientModules, userQuestions) => {
 		const mounted = new Map();
 		const jobs = createFakeJobs();
 		apply({
 			effect: (generator) => driveEffect(generator),
 			get: (name) =>
-				name === "jobs" ? jobs.api : name === "clientModules" ? clientModules : undefined,
+				name === "jobs"
+					? jobs.api
+					: name === "clientModules"
+						? clientModules
+						: name === "userQuestions"
+							? userQuestions
+							: undefined,
 			commands: {
 				register(definition) {
 					mounted.set(definition.name, definition);
@@ -1024,6 +1030,83 @@ try {
 		unknownClient.text.includes("客户端：命令卡状态未知"),
 		"客户端：clientModules 不可用时标「状态未知」而非假装已加载",
 		unknownClient.text,
+	);
+
+	// ---- 13) 完成通知：结论必须写进会话（空会话里命令行没有落点） ------------
+	// 平台事实：命令回执只落在对话流上，新建会话里跑命令看不到任何东西。
+	// 所以本地命令用 agent.inject()（不唤醒模型）把结论追加成一行 notice。
+	const notices = [];
+	const noticeAgent = {
+		session: { id: "session-notice" },
+		inject(message) {
+			notices.push(message);
+		}
+	};
+	const noticeHandler = mountWith({ graph: () => ({ entries: [{ id: "@morehao/dsh-commands" }] }) });
+	const noticeResult = await noticeHandler.handler({
+		rawInput: "",
+		signal: undefined,
+		agent: noticeAgent
+	});
+	const notice = notices.at(-1);
+	const noticeText = String(notice?.content?.[0]?.text ?? "");
+	check(
+		notices.length === 1 &&
+			notice.role === "user" &&
+			notice.source?.kind === "dsh-commands" &&
+			notice.source?.form === "notice",
+		"通知：结论以 notice 消息注入会话（不唤醒模型）",
+		JSON.stringify(notice?.source ?? null),
+	);
+	check(
+		noticeText.startsWith("/skill-init：") && noticeText.includes("✓ 无变更"),
+		"通知：正文带命令名与首行结论",
+		noticeText,
+	);
+	check(
+		String(notice?.source?.summary ?? "").includes("/skill-init 完成"),
+		"通知：summary 说明完成还是失败",
+		String(notice?.source?.summary ?? ""),
+	);
+	check(
+		noticeResult.text.startsWith("✓ 无变更") && notices.length === 1,
+		"通知：注入不影响命令回执本身",
+		noticeResult.text.split("\n")[0],
+	);
+
+	// 用户取消也要写一行，否则空会话里「什么都没发生」和「你取消了」分不清。
+	notices.length = 0;
+	await rm(linkPath("git-kit"), { force: true });
+	const cancelHandler = mountWith({ graph: () => ({ entries: [{ id: "@morehao/dsh-commands" }] }) }, {
+		async ask(request) {
+			return { answers: [{ id: request.questions[0].id, selected: ["取消"] }] };
+		}
+	});
+	const cancelResult = await cancelHandler.handler({
+		rawInput: "",
+		signal: undefined,
+		agent: noticeAgent
+	});
+	check(cancelResult.text.includes("已取消 /skill-init"), "通知：取消时回执不变", cancelResult.text);
+	check(
+		String(notices.at(-1)?.content?.[0]?.text ?? "").includes("/skill-init：已取消"),
+		"通知：取消也写一行 notice",
+		JSON.stringify(notices.at(-1)?.content?.[0]?.text ?? ""),
+	);
+
+	// 非法参数（错误出口）同样要落一行。
+	notices.length = 0;
+	const badArgHandler = mountWith({ graph: () => ({ entries: [{ id: "@morehao/dsh-commands" }] }) });
+	const badArgResult = await badArgHandler.handler({
+		rawInput: "--bogus",
+		signal: undefined,
+		agent: noticeAgent
+	});
+	check(badArgResult.kind === "error", "通知：非法参数按错误返回", badArgResult.text.split("\n")[0]);
+	check(
+		String(notices.at(-1)?.source?.summary ?? "").includes("/skill-init 失败"),
+		"通知：错误出口也写一行（summary 标失败）",
+		String(notices.at(-1)?.source?.summary ?? ""),
 	);
 } finally {
 	await rm(root, { recursive: true, force: true });

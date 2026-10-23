@@ -91,6 +91,21 @@
 
 如果 client half 没加载，命令卡回退 dsh 通用卡；完成仍只剩卡片，但 host 行为完全不变。
 
+### 结论写进会话（notice 行）
+
+命令卡只活在**对话流**里，而 dsh 的空会话渲染的是空状态 —— 新建会话后直接跑命令，命令确实执行了，用户却看不到任何东西（实测复现：日志里有 `command/run` + `command/done`，页面 DOM 里 `[data-dsh-commands-card]` 为 0）。
+
+所以本地命令的每条出口（完成 / 取消 / 失败 / 已停止）都会用 `agent.inject()` 往会话里追加一行 `form: "notice"` 的消息：
+
+```
+/skill-init：✓ 无变更 · 1.4s · 后台作业
+```
+
+- **不用 `followup()`**：那会唤醒模型跑一轮（花 token、回一段没人要的话）。`inject()` 只追加模型可见上下文、不唤醒任何回合 —— 与 `dsh-tool-jobs` 投递后台任务完成通知同一做法（`dsh-tool-jobs/lib/index.js` 里 `owner.inject(createUserMessage({ source: { kind, form: "notice" } }))`）。
+- 代价：下一次模型回合会读到这一行（一句话、几十 token），换来结果可见且可回溯。
+- `agent.inject` 不存在时静默跳过，命令行为不变。
+- 回执正文不整段灌进去：notice 只带首行结论，客户端卡没加载时再附一行原因。
+
 ### 排障：自绘命令卡根本没出现
 
 **客户端模块表在 dsh 启动时构建，运行中新装/升级的包不会自动进 boot graph。** host half 会被 hmr 热加载（所以回执文案已经是新的），client half 不会——结果就是「命令确实跑完了，但自绘卡、完成 toast、未读点全都不存在，只剩一行通用命令」。
