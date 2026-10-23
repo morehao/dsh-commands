@@ -621,10 +621,17 @@ try {
 		"e2e：不再注册 /skill-install 与 /skill-update",
 		[...registered.keys()].join(","),
 	);
+	const e2eWoken = [];
+	const e2eAgent = {
+		session: { id: "session-e2e" },
+		followup(message) {
+			e2eWoken.push(message);
+		},
+	};
 	const e2eResult = await registered.get("skill-init").handler({
 		rawInput: "",
 		signal: undefined,
-		agent: { session: { id: "session-e2e" } },
+		agent: e2eAgent,
 	});
 	check(
 		e2eResult.kind === "success" && e2eResult.text.startsWith("⚠ 已完成"),
@@ -643,7 +650,7 @@ try {
 	const e2eUpdateResult = await registered.get("skill-init").handler({
 		rawInput: "--update git-kit",
 		signal: undefined,
-		agent: { session: { id: "session-e2e" } },
+		agent: e2eAgent,
 	});
 	check(
 		e2eUpdateResult.kind === "success" && e2eUpdateResult.text.includes("已更新：1 个技能"),
@@ -654,6 +661,11 @@ try {
 		e2eJobs.state.starts[1]?.kind === "skill-init" && String(e2eJobs.state.starts[1]?.label).startsWith("更新技能"),
 		"e2e：--update 的作业 kind/label 正确",
 		JSON.stringify(e2eJobs.state.starts[1]),
+	);
+	check(
+		String(e2eWoken.at(-1)?.content?.[0]?.text ?? "").startsWith("/skill-init --update git-kit："),
+		"e2e：报告首行带 --update 参数",
+		String(e2eWoken.at(-1)?.content?.[0]?.text ?? "").split("\n")[0],
 	);
 
 	// 非 --update 时不允许位置参数：以前这些词会被静默忽略，现在直接给用法。
@@ -1058,8 +1070,8 @@ try {
 		JSON.stringify({ woken: woken.length, injected: injected.length }),
 	);
 	check(
-		report.role === "user" && report.source?.kind === "dsh-commands" && report.source?.form === "notice",
-		"报告：以 notice 形式呈现，不会变成一张大用户气泡",
+		report.role === "user" && report.source?.kind === "cordis-host-runner" && report.source?.form === "notice",
+		"报告：用插件来源 kind + notice 形式（触发行为「插件状态更新」）",
 		JSON.stringify(report?.source ?? null),
 	);
 	check(
@@ -1109,9 +1121,14 @@ try {
 	const badArgResult = await badArgHandler.handler({ rawInput: "--bogus", signal: undefined, agent: reviewAgent });
 	check(badArgResult.kind === "error", "报告：非法参数按错误返回", badArgResult.text.split("\n")[0]);
 	check(
-		woken.length === 1 && String(woken.at(-1)?.source?.summary ?? "").includes("/skill-init 失败"),
-		"报告：错误出口也交给会话（summary 标失败）",
+		woken.length === 1 && String(woken.at(-1)?.source?.summary ?? "").includes("/skill-init --bogus 失败"),
+		"报告：错误出口也交给会话，summary 带真实参数",
 		String(woken.at(-1)?.source?.summary ?? ""),
+	);
+	check(
+		String(woken.at(-1)?.content?.[0]?.text ?? "").startsWith("/skill-init --bogus："),
+		"报告：正文首行带真实命令行（含参数）",
+		String(woken.at(-1)?.content?.[0]?.text ?? "").split("\n")[0],
 	);
 
 	// DSH_COMMANDS_SKILL_NOTIFY=notice 时降级为零 token 记录。
