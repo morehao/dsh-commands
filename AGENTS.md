@@ -6,7 +6,7 @@
 
 - 包：`@morehao/dsh-commands`，dsh 原生斜杠命令集合；**仓库根即包根**。host 是纯 ESM、无构建步骤；web client half 是手写的预打包 bundle（`lib/client.js`），同样不需要构建。
 - 入口：[lib/index.js](lib/index.js) 注册 `COMMANDS`（委托型）与 `LOCAL_COMMANDS`（本地执行型）。
-- 技能逻辑不在本仓：`git-kit` / `handoff` / `disk-cleanup` 由 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 提供；本仓只做「命令 → skill 分支」的薄映射。
+- 技能逻辑不在本仓：`git-kit` / `handoff` / `disk-cleanup` 由 [`morehao/agent-skills`](https://github.com/morehao/agent-skills) 提供；本仓只做「命令 → skill 分支」的薄映射。
 - 运行时：Node.js ≥ 22.20；唯一 npm 依赖 `skills`（优先直接调用其 CLI，缺失时回退 `npx -y skills`）。
 - 发布：tag `vX.Y.Z` → GitHub Actions OIDC → npm；发布成功后 CI 用注记 tag 正文创建 GitHub Release。
 
@@ -29,7 +29,7 @@
 
 ### 架构边界
 
-- 本仓是**薄入口**：不复制技能流程/脚本；新增能力先改 ai-kit 的 skill，再在这里加一行映射。
+- 本仓是**薄入口**：不复制技能流程/脚本；新增能力先改 agent-skills 的 skill，再在这里加一行映射。
 - `branch` 必须与目标 `SKILL.md` 决策树的分支 key 一致（即 `references/<branch>.md`）；`skill` 省略时默认 `git-kit`。
 - 注入给 agent 的是手工构造的 user 消息，必须保留 `role` / `source: { kind: "user" }` / `content` / `id`；不要引入 `@deepseek-ai/*` 运行时 import。
 - 委托型命令统一 `recordInput: false`（输入已随注入消息入日志）；本地执行型统一 `true`，不要互换。

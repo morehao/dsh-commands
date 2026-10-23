@@ -28,13 +28,13 @@ host 没有构建步骤，源码即产物（纯 ESM）；唯一运行时依赖�
 - `branch` 值必须与对应 `SKILL.md` 决策树的分支 key 一致（即 `references/<branch>.md`）；`skill` 省略时默认 `git-kit`。
 - `hint` / `required` 决定输入提示与校验；`description` 原样出现在斜杠菜单，不做 i18n（原因见 [架构与原理](./architecture.md#描述文本不做-i18n有意为之)）。
 - 技能对「无参数」有专门语义时用 `noInput` 覆盖默认注入语（`/cleanup` 靠它实现「先给选项、不执行脚本」），需要用户确认的事项用 `confirm` 覆盖默认措辞。
-- 命令与 ai-kit 里 opencode 侧 `commands-opencode/git/*.md`、`commands-opencode/handoff.md`、`commands-opencode/cleanup.md` 是同一 skill 的多条入口，只声明意图、不重复逻辑。
+- 命令与 agent-skills 里 opencode 侧 `commands-opencode/git/*.md`、`commands-opencode/handoff.md`、`commands-opencode/cleanup.md` 是同一 skill 的多条入口，只声明意图、不重复逻辑。
 - 新增委托型命令后，`REQUIRED_SKILLS` 会自动带上它的技能，`/skill-init` 与 `--update` 无需另改；委托型 handler 也会自动预检该技能是否已安装。
 - 任意来源的额外技能不进 `COMMANDS`，也不由插件安装：直接 `npx -y skills add <来源> --skill <名称> -g -a universal -y`。
 
 ## 跨仓契约
 
-命令 → 技能分支的对应关系已跨仓（技能在 ai-kit）。改动 `COMMANDS` 或技能分支后跑：
+命令 → 技能分支的对应关系已跨仓（技能在 agent-skills）。改动 `COMMANDS` 或技能分支后跑：
 
 ```bash
 node scripts/check-skill-contract.mjs

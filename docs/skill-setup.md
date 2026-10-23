@@ -54,9 +54,9 @@ skills add <本地缓存> --skill <缺的> -g -a universal -y --json
 旧实现每次命令都执行：
 
 ```
-npx -y skills add morehao/ai-kit …
+npx -y skills add morehao/agent-skills …
    ├─ npx 解析/启动：热缓存约 2–3s
-   └─ git clone 整个 ai-kit：约 5–10s（网络差时 75s 起）
+   └─ git clone 整个 agent-skills：约 5–10s（网络差时 75s 起）
 ```
 
 现在拆成两层：
@@ -64,7 +64,7 @@ npx -y skills add morehao/ai-kit …
 1. **CLI 不再每次走 npx**：`skills` 是插件的依赖，直接 `node <skills>/bin/cli.mjs`；只有依赖缺失（源码目录没装依赖）时才回退 `npx -y skills`。
 2. **来源只 clone 一次**：缓存到 `$DSH_HOME/cache/skills-sources/<url-hash>`，后续 `git fetch --depth 1` 增量更新；TTL 内连 fetch 都跳过。安装时把**本地缓存目录**交给 `skills add`，CLI 只做文件拷贝。
 
-实测（本机、GitHub 正常、ai-kit 约 1.7 MB）：
+实测（本机、GitHub 正常、agent-skills 约 1.7 MB）：
 
 | 场景 | 旧链路 | 新链路 |
 |---|---|---|
@@ -94,9 +94,9 @@ npx -y skills add morehao/ai-kit …
 
 ```json
 {
-  "source": "morehao/ai-kit",
+  "source": "morehao/agent-skills",
   "sourceType": "github",
-  "sourceUrl": "https://github.com/morehao/ai-kit.git",
+  "sourceUrl": "https://github.com/morehao/agent-skills.git",
   "skillPath": "skills/handoff/SKILL.md",
   "skillFolderHash": "<git tree hash>"
 }
@@ -114,8 +114,8 @@ npx -y skills add morehao/ai-kit …
 
 - **`-a universal` 必须显式给**：不带 `-a` 且没检测到任何 agent 时，`-y` 会把技能装到**全部** agent 目录。`skills update` 内部正是这么 spawn 的，所以 `--update` 也用 `add` 而不是 `update`。
 - **`-a universal -g` 直接落 canonical**：上游对 universal + global 有特例，不会再额外建 `~/.config/agents/skills` 链接。
-- **`add` 只有拷贝语义**（`link` 模式仅 `experimental_sync` 用），canonical 是拷贝：改本地 ai-kit clone 不会自动生效，要 `/skill-init --update`。
-- **只替换软链，不做备份、不删真实目录**：覆盖旧条目时只 `unlink` 旧**软链**（含悬空软链）——链接指向的目录（你的本地 ai-kit clone）一字不动，要回滚再 `ln -s` 一次即可；遇到同名**真实目录/文件**则直接报错让你自行移走，避免任何不可回滚的删除。也正因为如此，`skills/` 里不能再出现 `xxx.bak-<时间>` 这种目录：它含 `SKILL.md`，会被当成同名技能扫到。
+- **`add` 只有拷贝语义**（`link` 模式仅 `experimental_sync` 用），canonical 是拷贝：改本地 agent-skills clone 不会自动生效，要 `/skill-init --update`。
+- **只替换软链，不做备份、不删真实目录**：覆盖旧条目时只 `unlink` 旧**软链**（含悬空软链）——链接指向的目录（你的本地 agent-skills clone）一字不动，要回滚再 `ln -s` 一次即可；遇到同名**真实目录/文件**则直接报错让你自行移走，避免任何不可回滚的删除。也正因为如此，`skills/` 里不能再出现 `xxx.bak-<时间>` 这种目录：它含 `SKILL.md`，会被当成同名技能扫到。
 - dsh 同层同名技能按根 rank 取小者（`$DSH_HOME/skills`=400 胜 `~/.agents/skills`=500），软链与 canonical 并存不会产生重复技能；技能根有 watcher，装完免重启。
 - 任意来源的额外技能不经过本插件，因此不需要软链、也不需要四路并集判断；一条 `npx skills add` 即可。
 
@@ -123,7 +123,7 @@ npx -y skills add morehao/ai-kit …
 
 - **Node.js ≥ 22.20**（`skills` 包与插件 `engines` 现在一致）。
 - **网络**：首次需要能访问来源仓库；TTL 内不再联网，TTL 过期会 fetch 检查上游，`--update` 强制 fetch。GitHub 443 不通时首次 clone 前的 `git ls-remote --heads` 预检默认 8s 失败（`DSH_COMMANDS_SKILL_PROBE_MS` 可调，设 0 关闭；本地路径来源不预检），并给代理/镜像提示。
-- **来源**：默认 `morehao/ai-kit`；`DSH_COMMANDS_SKILL_SOURCE` 可换成可达镜像或本地目录。
+- **来源**：默认 `morehao/agent-skills`；`DSH_COMMANDS_SKILL_SOURCE` 可换成可达镜像或本地目录。
 - **CLI 版本**：依赖 `skills`（`package.json` 用 `latest`，安装时取最新），默认直接调用；显式设置 `DSH_COMMANDS_SKILL_NPX_SPEC`（如 `skills`）会改走 npx 指定版本。`DSH_COMMANDS_SKILL_CLI_OVERRIDE` 可完全替换命令本体（视为可执行文件 + 固定前缀，用于测试桩或自定义安装方式；此时跳过缓存、预检与 `--json`）。
   - 旧名 `DSH_COMMANDS_SKILLS_CLI` / `DSH_COMMANDS_SKILL_CLI` 仍作为 fallback 读取一个版本，但已 deprecated：它们只差一个字母，极易配错。
 - **超时**：外层硬超时 `DSH_COMMANDS_SKILL_TIMEOUT_MS`（默认 120s）；CLI 自己的克隆超时 `SKILLS_CLONE_TIMEOUT_MS` 会被压到早 30s。缓存 git 操作由外层派生（见上）。超时的回执直接写「超时（超过 Ns，已强制终止）」，不再显示成 `退出码 SIGKILL`。
@@ -138,7 +138,7 @@ npx -y skills add morehao/ai-kit …
 | 现状 | 行为 |
 |---|---|
 | `~/.dsh/skills` 里没有 | 从缓存安装 `git-kit`、`handoff`、`disk-cleanup` → 软链 `~/.dsh/skills/*` → `~/.agents/skills/*` |
-| 已手工 `git clone ai-kit && ln -s` | 判定为「非托管软链」→ **替换**软链，clone 目录不动 |
+| 已手工 `git clone agent-skills && ln -s` | 判定为「非托管软链」→ **替换**软链，clone 目录不动 |
 | 已经是托管软链 | 缓存 TTL 内且 hash 一致 → 跳过；TTL 过期 → 检查上游，**发现更新只报告不重装**（写盘要 `--update`） |
 | 选了「只补缺失」 | 只装 `state=missing` 的条目，已有条目不动（远端缓存仍可能 fetch 以拿到缺失技能） |
 | 同名位置是真实目录 | 该技能报「拒绝覆盖」，其余照常；回执末尾提示它会遮蔽 canonical 的托管版本 |
@@ -166,19 +166,19 @@ npx -y skills add morehao/ai-kit …
 
 ## 额外技能（不再由插件安装）
 
-[`morehao/ai-kit`](https://github.com/morehao/ai-kit) 现提供 7 个技能：`git-kit`、`handoff`、`disk-cleanup`（插件依赖，由 `/skill-init` 管）与 `project-insight`、`project-wiki`、`svg-maker`、`tech-design`（按需手工安装）。
+[`morehao/agent-skills`](https://github.com/morehao/agent-skills) 现提供 7 个技能：`git-kit`、`handoff`、`disk-cleanup`（插件依赖，由 `/skill-init` 管）与 `project-insight`、`project-wiki`、`svg-maker`、`tech-design`（按需手工安装）。
 
 ```bash
-npx -y skills add morehao/ai-kit --skill tech-design -g -a universal -y
-npx -y skills add morehao/ai-kit --skill project-insight project-wiki svg-maker -g -a universal -y
+npx -y skills add morehao/agent-skills --skill tech-design -g -a universal -y
+npx -y skills add morehao/agent-skills --skill project-insight project-wiki svg-maker -g -a universal -y
 ```
 
 | 想要的能力 | 命令 |
 |---|---|
-| 写技术方案 / 设计文档 | `npx -y skills add morehao/ai-kit --skill tech-design -g -a universal -y` |
-| 解读开源项目（带源码行号引用） | `npx -y skills add morehao/ai-kit --skill project-insight -g -a universal -y` |
-| 给项目生成可读 Wiki | `npx -y skills add morehao/ai-kit --skill project-wiki -g -a universal -y` |
-| 生成独立 SVG 架构图 | `npx -y skills add morehao/ai-kit --skill svg-maker -g -a universal -y` |
+| 写技术方案 / 设计文档 | `npx -y skills add morehao/agent-skills --skill tech-design -g -a universal -y` |
+| 解读开源项目（带源码行号引用） | `npx -y skills add morehao/agent-skills --skill project-insight -g -a universal -y` |
+| 给项目生成可读 Wiki | `npx -y skills add morehao/agent-skills --skill project-wiki -g -a universal -y` |
+| 生成独立 SVG 架构图 | `npx -y skills add morehao/agent-skills --skill svg-maker -g -a universal -y` |
 
 装完即可用，无需重启（dsh 扫描 `~/.agents/skills`，不依赖插件软链）。更新同样用 `npx -y skills add …`（或 `npx skills update <名称> -g -y`）。
 
@@ -187,26 +187,26 @@ npx -y skills add morehao/ai-kit --skill project-insight project-wiki svg-maker 
 ```bash
 # ① 新机器一次配齐（首次 clone，之后走缓存）
 /skill-init
-npx -y skills add morehao/ai-kit --skill project-insight project-wiki svg-maker tech-design -g -a universal -y
+npx -y skills add morehao/agent-skills --skill project-insight project-wiki svg-maker tech-design -g -a universal -y
 
-# ② ai-kit 发新版后：插件依赖强制走 --update，额外技能用 npx 重装
+# ② agent-skills 发新版后：插件依赖强制走 --update，额外技能用 npx 重装
 /skill-init --update
-npx -y skills add morehao/ai-kit --skill project-insight project-wiki svg-maker tech-design -g -a universal -y
+npx -y skills add morehao/agent-skills --skill project-insight project-wiki svg-maker tech-design -g -a universal -y
 
-# ③ 边改 ai-kit 边用：想保持改完立刻生效就别跑 /skill-init（手工 ln -s 到 clone）；
+# ③ 边改 agent-skills 边用：想保持改完立刻生效就别跑 /skill-init（手工 ln -s 到 clone）；
 #    已切成托管链路后想恢复本地编辑，只换链接、不动文件：
-ln -sfn ~/practice/ai/ai-kit/skills/git-kit ~/.dsh/skills/git-kit
+ln -sfn ~/practice/ai/agent-skills/skills/git-kit ~/.dsh/skills/git-kit
 ```
 
 > `/skill-init` 自 **v0.1.9** 起提供，运行期的作业行 / 流式输出自 **v0.1.10** 起提供；**v0.2.0** 起 `/skill-install` 删除、`/skill-update` 并入 `/skill-init --update`，任意来源安装改走 `npx skills add`。
 
 ## 手工准备（不想让插件动 home）
 
-技能由 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 提供，可以自己 clone 并软链：
+技能由 [`morehao/agent-skills`](https://github.com/morehao/agent-skills) 提供，可以自己 clone 并软链：
 
 ```bash
-git clone https://github.com/morehao/ai-kit.git
-mkdir -p "$HOME/.dsh/skills" && ln -s "$PWD/ai-kit/skills"/* "$HOME/.dsh/skills/"
+git clone https://github.com/morehao/agent-skills.git
+mkdir -p "$HOME/.dsh/skills" && ln -s "$PWD/agent-skills/skills"/* "$HOME/.dsh/skills/"
 ```
 
 手工软链指向你的本地 clone（改本地文件即时生效），但不归 `skills` CLI 托管，`/skill-init --update` 不会更新它；下次跑 `/skill-init` 会把它**替换**成托管软链——只删那条链接，你的 clone 一个字节都不动，想恢复再 `ln -s` 一次即可。

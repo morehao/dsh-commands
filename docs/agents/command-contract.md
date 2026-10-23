@@ -21,7 +21,7 @@
 |---|---|---|
 | `name` | 两者 | 唯一；出现在斜杠菜单 |
 | `branch` | 委托型 | 必填；必须等于目标技能 `references/<branch>.md` 的 key（单分支技能除外） |
-| `skill` | 委托型 | 省略 = `git-kit`；必须是 ai-kit 提供的技能名 |
+| `skill` | 委托型 | 省略 = `git-kit`；必须是 agent-skills 提供的技能名 |
 | `hint` | 两者 | 输入提示；`required` 为真且输入为空时用于 `Usage: /<name> <hint>` 回执 |
 | `required` | 委托型 | 为真时，空输入直接返回用法错误，不注入消息 |
 | `description` | 两者 | 直接写中文；原样进菜单，不做 i18n |
@@ -58,7 +58,7 @@
 
 ## 6. 增删命令清单
 
-- [ ] `branch` 与 ai-kit `SKILL.md` 决策树一致；多分支技能确认 `references/<branch>.md` 存在。
+- [ ] `branch` 与 agent-skills `SKILL.md` 决策树一致；多分支技能确认 `references/<branch>.md` 存在。
 - [ ] `skill` 写对；省略时确认默认 `git-kit` 是想要的。
 - [ ] `hint` / `required` / `noInput` / `confirm` 覆盖参数边界。
 - [ ] 描述是中文、面向用户、不写实现细节。
@@ -68,7 +68,7 @@
 
 ## 7. 跨仓契约
 
-- 技能在 ai-kit；本仓只存映射。技能改分支名而插件没跟，命令仍可点，但结果不对。
+- 技能在 agent-skills；本仓只存映射。技能改分支名而插件没跟，命令仍可点，但结果不对。
 - [check-skill-contract.mjs](../../scripts/check-skill-contract.mjs) 读取 `COMMANDS`，检查 `$DSH_HOME/skills/<skill>/SKILL.md` 与 `references/<branch>.md`；单分支技能只校验 `SKILL.md`。
 - `handoff` 的 `branch: "print"` 是装饰性的：它没有 `references/`，不要为了通过校验去改技能文案。
 - 技能未安装时契约校验必然失败；先 `/skill-init`，或在交付说明里写明未跑及原因。
@@ -87,7 +87,7 @@
 | `/skill-init` 有变更却没弹确认 | `needsConfirmation()` 是否只看到真实目录；`ctx.userQuestions` 是否可用；是否带了 `--yes` 或 `--update` |
 | `/git-*` 提示技能未安装 | 依赖技能是否在 `$DSH_HOME/skills` / `$DSH_AGENTS_HOME/skills` / `~/.agents/skills`；先跑 `/skill-init`，或按回执里的 `npx` 命令手工装 |
 | 确认卡住/命令不返回 | `confirmSkillOperation()` 是否在无问答能力时降级；是否只有 `ASK_CANCELLED` 才取消 |
-| 契约校验失败 | 技能是否安装、`DSH_HOME` 是否指向正确技能根、ai-kit 是否改了分支名 |
+| 契约校验失败 | 技能是否安装、`DSH_HOME` 是否指向正确技能根、agent-skills 是否改了分支名 |
 
 ## 9. 相关文档
 
