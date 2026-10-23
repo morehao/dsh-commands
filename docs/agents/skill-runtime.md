@@ -36,7 +36,8 @@
 - **lock 来源回写**：`skills add <本地缓存>` 会把 lock 写成 local；安装后必须回写 `source` / `sourceType` / `sourceUrl` / `skillPath` / `skillFolderHash`，否则其他 agent 的 `npx skills update` 认不出远端。
 - **单一写入锁**：同一 `DSH_HOME` + canonical 目录同时只允许一个技能写操作；第二次直接拒绝，不并行 clone。
 - **`-a universal` 必须显式给**；不要用 `skills update`（内部 spawn 可能装到所有 agent 目录），`--update` 也用 `add`。
-- **确认是可选增强**：只有 `plan` 判定有变更（安装了/需要安装、缓存过期需要联网检查）时才问；真实目录/文件虽然不会替换链接，但来源仍会装进 canonical，所以同样会问。`--yes` 完全跳过；`ctx.userQuestions`/活 agent 缺失时降级执行，不能把命令卡死。只有 `ASK_CANCELLED` / `ASK_ABORTED` 才算用户取消。
+- **确认只看「是否确定要写盘」**：`pending`（缺失/待修复）或 `plan.freshness.changed`（缓存已知的上游更新）才问；**缓存过期不提问**（联网检查只读）。真实目录/文件虽然不会替换链接，但来源仍会装进 canonical，所以同样会问。`--yes` 完全跳过；`ctx.userQuestions`/活 agent 缺失时降级执行并在回执首行标 `· 未确认`，不能把命令卡死。只有 `ASK_CANCELLED` / `ASK_ABORTED` 才算用户取消。
+- **写盘范围只由 plan 决定**（`installTargets()`）：运行时 `checkSourceSkills()` 发现的上游更新**只报告、不安装**（回执给 `--update` 指引）。不要图省事把 `check.changed` 并进 `toInstall`——那会在用户没确认的情况下覆盖写，破坏「只由写盘触发确认」。
 - **choice 只影响执行范围，不改变 plan**：`choice=missing` 时 `runSkillInit` 只处理 `state=missing`，跳过上游比对和已有条目。
 - **任意来源安装不在本插件内**：dsh 扫描 canonical `~/.agents/skills`，额外技能用 `npx -y skills add <来源> --skill <名称> -g -a universal -y`，不需要软链，也不要重新引入 `/skill-install` 式的四路并集逻辑。
 
@@ -64,12 +65,12 @@
 
 ## 6. 作业与取消
 
-- host 命令面没有进度通道；过程走 `ctx.jobs`：`reporter.progress()` 更新作业行，`reporter.write()` 写面板。web client half（`lib/client.js`）再把 `ctx.jobs` 快照渲染回命令卡，并在离开会话时补完成提示。
+- host 命令面没有进度通道；过程走 `ctx.jobs`：`reporter.progress()` 更新作业行，`reporter.write()` 写面板。web client half（`lib/client.js`）再把 `ctx.jobs` 快照渲染回命令卡，并在作业结算时补完成提示（当前会话也弹，切走时才额外标未读）。
 - **必须 `wait()` 到终态**：`runInJob` 自己切片 `jobs.wait()`，保持 `awaited=true`，结算不投完成通知、不唤醒模型回合。不要改成订阅事件收尾。
 - 作业结束前写一条 `完成：<结论首行>` 的 progress，结算后作业行仍能看到最终结论；但因为 `awaited`，**不会**再投一条完成通知——这是有意的零 token 取舍。
 - 取消只终止子进程，不提前结束等待；`signal` 中止 → `jobs.kill`，最终返回 `{ killed: true }`。
 - `ctx.jobs` 缺失、无控制器、并发上限、无 owner：退回直接执行（`NO_REPORTER`），语义不变；`apply` 不把 `jobs` 写进 `inject`。
-- 无事可做时 `plan.skipReason` 有值：不建作业，但工作仍以无 reporter 跑一遍（幂等修复）。
+- 无事可做时 `plan.skipReason` 有值：不建作业，但工作仍以无 reporter 跑一遍（幂等修复）；这类路径没有作业事件，完成感由命令卡的 `无变更` 态 + 回执第二行承担。
 
 ## 7. 子进程与文本
 

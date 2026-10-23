@@ -118,6 +118,7 @@ try {
 		probeUrlForSource,
 		probeSourceReachability,
 		planSkillOperation,
+		installTargets,
 	} = await import("../lib/skill-setup.js");
 	const { COMMANDS } = await import("../lib/index.js");
 	check(resolveSkillSource({}) === "morehao/ai-kit", "来源：默认 morehao/ai-kit");
@@ -221,12 +222,12 @@ try {
 	const callsBefore = await stubCalls();
 	text = await runSkillInit(COMMANDS, {});
 	check(text.includes("已托管，跳过"), "init 幂等：已托管技能跳过", text);
-	check(text.startsWith("✓ 已是最新 ·"), "init 幂等：首行是结论式「已是最新」", text);
+	check(text.startsWith("✓ 无变更 ·"), "init 幂等：首行是结论式「无变更」", text);
 	check((await stubCalls()) === callsBefore, "init 幂等：未再次调用 CLI");
 	const idlePlan = await planSkillOperation("skill-init", COMMANDS, "");
 	check(
 		idlePlan.skipReason === "已全部托管，无需安装",
-		"init：plan 给出短因（不复述「已是最新」）",
+		"init：plan 给出短因（不复述回执结论）",
 		String(idlePlan.skipReason),
 	);
 
@@ -897,6 +898,82 @@ try {
 		"init：choice=missing 只向 CLI 传缺失技能",
 		JSON.stringify(missingArgv),
 	);
+
+	// ---- 11) 写盘范围与提问条件：只由「确定要写盘」驱动 ----------------------
+	// 缓存过期 / 无事可做都不再提问：问不问不能取决于「距上次检查多久」。
+	const managedOnlyPlan = {
+		skipReason: undefined,
+		kind: "skill-init",
+		targets: ["git-kit", "handoff", "disk-cleanup"],
+		states: [],
+		pending: [],
+		freshness: { cacheSource: true, fresh: false, changed: [] },
+	};
+	check(
+		needsConfirmation({ name: "skill-init" }, managedOnlyPlan) === false,
+		"confirm：只有缓存过期（要联网检查）时不提问",
+		JSON.stringify(managedOnlyPlan),
+	);
+	const changedOnlyPlan = {
+		...managedOnlyPlan,
+		freshness: { cacheSource: true, fresh: true, changed: ["handoff"] },
+	};
+	check(
+		needsConfirmation({ name: "skill-init" }, changedOnlyPlan) === true,
+		"confirm：plan 已知上游有更新（要重装）时提问",
+		JSON.stringify(changedOnlyPlan),
+	);
+	const changedRequest = confirmationRequest({ name: "skill-init" }, changedOnlyPlan);
+	check(
+		changedRequest.options.some((option) => option.label === "处理全部") &&
+			!changedRequest.options.some((option) => option.label === "联网检查") &&
+			changedRequest.question.includes("更新"),
+		"confirm：不再出现「联网检查」选项",
+		JSON.stringify(changedRequest),
+	);
+
+	const pendingState = { name: "git-kit", state: "missing", isSymlink: false, isDirectory: false };
+	const unmanagedState = { name: "handoff", state: "unmanaged", isSymlink: true, isDirectory: false };
+	const plannedOnly = installTargets({ pending: [pendingState], freshness: {} });
+	check(
+		JSON.stringify(plannedOnly) === JSON.stringify(["git-kit"]),
+		"init：写盘集合 = 缺失/待修复项",
+		JSON.stringify(plannedOnly),
+	);
+	const plannedWithChanged = installTargets({
+		pending: [pendingState, unmanagedState],
+		freshness: { fresh: true, changed: ["handoff", "disk-cleanup"] },
+	});
+	check(
+		JSON.stringify(plannedWithChanged) === JSON.stringify(["git-kit", "handoff", "disk-cleanup"]),
+		"init：plan 已知上游更新的托管技能也进写盘集合（去重）",
+		JSON.stringify(plannedWithChanged),
+	);
+	const plannedFromStale = installTargets({ pending: [], freshness: { fresh: false, changed: undefined } });
+	check(
+		JSON.stringify(plannedFromStale) === JSON.stringify([]),
+		"init：缓存过期且 plan 无从得知 changed 时不写盘（运行时只报告）",
+		JSON.stringify(plannedFromStale),
+	);
+
+	// plan 已知更新 → 只重装这些，不再等运行时发现，也不扩大写盘范围。
+	const managedNow = await planSkillOperation("skill-init", COMMANDS, "");
+	const changedPlan = {
+		...managedNow,
+		skipReason: undefined,
+		freshness: { ...managedNow.freshness, fresh: true, changed: ["handoff"] },
+	};
+	const callsBeforeChanged = await stubCalls();
+	const changedText = await runSkillInit(COMMANDS, { plan: changedPlan });
+	const changedArgv = JSON.parse((await readFile(stubLog, "utf8")).trim().split("\n").pop());
+	check(
+		(await stubCalls()) === callsBeforeChanged + 1 &&
+			changedArgv.filter((arg) => arg === "--skill").length === 1 &&
+			changedArgv.includes("handoff"),
+		"init：plan 已知的上游更新会被重装（只传该项）",
+		JSON.stringify(changedArgv),
+	);
+	check(changedText.startsWith("✅ 已完成"), "init：重装后首行是完成结论", changedText);
 } finally {
 	await rm(root, { recursive: true, force: true });
 }
