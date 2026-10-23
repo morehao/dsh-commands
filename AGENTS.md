@@ -17,6 +17,7 @@
 | [lib/skill-cache.js](lib/skill-cache.js) | 来源浅克隆缓存、TTL、lock 回写 |
 | [lib/skill-paths.js](lib/skill-paths.js) | `$DSH_HOME` / `$DSH_AGENTS_HOME` / canonical / lock 路径 |
 | [lib/job-progress.js](lib/job-progress.js) | 长任务挂到 `ctx.jobs`、作业行/面板/停止/降级 |
+| [lib/confirm.js](lib/confirm.js) | 本地命令执行前的 `ctx.userQuestions` 确认、来源询问、`--yes` 降级 |
 | [lib/proc.js](lib/proc.js) / [lib/text.js](lib/text.js) | 子进程 timeout/abort/输出上限；ANSI/spinner/tail 清洗 |
 | [scripts/](scripts/) | 契约校验、命名/打包校验、离线冒烟、发布脚本 |
 | [docs/](docs/) | 人类向架构、技能自举、过程可见、开发、发布、历史 |
@@ -68,7 +69,7 @@
 | 你要改 | 先读 | 必跑 |
 |---|---|---|
 | `COMMANDS` / `branch` / 注入文案 / `recordInput` | [命令契约](docs/agents/command-contract.md) | `npm run check` + 契约校验 |
-| `skill-setup` / `cache` / `paths` / `proc` / `text` / `job-progress` | [技能运行时](docs/agents/skill-runtime.md) | `npm run check` |
+| `skill-setup` / `cache` / `paths` / `proc` / `text` / `job-progress` / `confirm` | [技能运行时](docs/agents/skill-runtime.md) | `npm run check` |
 | `scripts/` / CI / `package.json` / 发布 | [验证与发布](docs/agents/verification-release.md) | `npm run check` + 命名/打包校验 |
 | 纯文档 | 对应人类文档 | 链接与事实核对 |
 

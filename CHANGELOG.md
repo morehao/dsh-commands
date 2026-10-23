@@ -6,8 +6,21 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **`/skill-init`、`/skill-install` 执行前确认**：`plan` 判定有变更（安装/替换软链、真实目录仍需装 canonical、缓存过期需联网检查）或 `/skill-install` 要装整个来源时，通过 dsh 的 `ctx.userQuestions` 弹一次「继续执行 / 取消」；取消直接返回「已取消，未做任何变更」并不建作业。`/skill-install` 不写来源时先问来源；`/skill-update` 是显式更新，不弹确认。`--yes` 跳过确认；没有问答 UI/活 agent/被委派时降级为直接执行并在回执说明。
+- **回执首行结论化**：`/skill-init`、`/skill-install`、`/skill-update` 的首行改为 `✓ 已是最新` / `✅ 已安装：N 个技能` / `✅ 已更新：N 个技能` / `⚠ 已完成，但有 N 项需处理`，不再用中性的「技能依赖检查」；部分失败/真实目录遮蔽一眼可见。
+- **作业过程更具体**：作业 label 带上本次目标技能（如 `检查依赖技能（git-kit、handoff、disk-cleanup）`）；结算前写一条 `完成：<结论>` progress，作业行保留最终结论。
+
+### 变更
+
+- 「过程：作业 …」不再追加在回执最后一行（折叠时看不到），改为第二行；有作业时首行带 `· 后台作业`，降级时带 `· 未启用后台作业`。
+- `LOCAL_COMMANDS` 的 `label` 签名改为 `(input, plan)`，让作业行能显示实际处理范围。
+- 文档同步执行前确认、`--yes`、结论式回执与「完成通知仍受 `awaited` 抑制」的边界。
+
 ### 修复
 
+- 本地命令「执行成功但用户感知不到」：首行给结论、过程提示上移、无事可做时也明确说明为什么没有作业。
 - `release.yml` 建 GitHub Release 时读不到注记正文：tag 事件下 `actions/checkout` 会把
   `refs/tags/<tag>` 重指成轻量 tag，导致 `release-notes.mjs` 拒绝投影。现建 Release 前按
   `refs/tags/<tag>` 显式回拉一次，恢复注记后再投影（v0.1.13 缺失的 Release 已手工补建）。
