@@ -23,7 +23,7 @@
   ✗ git-kit — 未安装 → 将安装
   ✓ handoff — 已安装
   ! disk-cleanup — 真实目录 → 保留，不链入
-  来源：morehao/ai-kit
+  来源：morehao/agent-skills
   [处理全部] [只补缺失] [取消]
 ```
 

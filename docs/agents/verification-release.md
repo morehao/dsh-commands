@@ -31,7 +31,7 @@ PR 与 push `main` 触发，机械校验：
 
 注意：
 
-- **跨仓契约校验不在 CI**（依赖 ai-kit 技能目录），需要本地跑。
+- **跨仓契约校验不在 CI**（依赖 agent-skills 技能目录），需要本地跑。
 - `npm run check` 含 client 语法/接线冒烟、命名、打包与两个技能冒烟；不含 `release-notes` 冒烟和其余 `lib/*.js` 的 `node --check`，本地全量按矩阵补。
 - CI 不装依赖、不联网；冒烟用 stub / 本地 git。
 
@@ -65,7 +65,7 @@ PR 与 push `main` 触发，机械校验：
 
 | 症状 | 先查 |
 |---|---|
-| 契约校验失败 | 技能未安装、`DSH_HOME` 不对、ai-kit 分支改名 |
+| 契约校验失败 | 技能未安装、`DSH_HOME` 不对、agent-skills 分支改名 |
 | `check-pack` 多出文件 | 本地 `npm pack` 产物、`.dsh/`、`node_modules` 或新增目录未加白名单 |
 | 命名校验失败 | `package.json.name` / patch `name` / plugin `name` 三处不一致 |
 | OIDC `404` | workflow `name:` 是否等于 `release.yml`；npm registry 是否降级 |

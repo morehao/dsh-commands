@@ -44,7 +44,7 @@
 - **发布模型**：打 `vX.Y.Z` tag → OIDC（Trusted Publishing）自动发布，**不需要长效 token**。
 - **自动发布**：`.github/workflows/release.yml`（tag 触发）→ `scripts/ci-publish.sh`（发布逻辑）。
 - **Release**：同一个 job 在 npm 发布**成功后**建 GitHub Release，body = 注记 tag 的正文（`scripts/release-notes.mjs` 原样投影，不重算、不改写；已存在则跳过）。
-- **范围**：全仓仅此一个包；技能与 opencode 入口在另一仓（[`morehao/ai-kit`](https://github.com/morehao/ai-kit)），**不入包**。
+- **范围**：全仓仅此一个包；技能与 opencode 入口在另一仓（[`morehao/agent-skills`](https://github.com/morehao/agent-skills)），**不入包**。
 
 ## 2. 日常发新版（操作手册）
 
@@ -118,7 +118,7 @@ npx --yes setup-npm-trusted-publish @morehao/dsh-commands --registry https://reg
 - `package.json` 的 `name`（npm 包名）== `cordis.patch.yml` 的 `insert[0].name`（dsh 启动时 `import()` 的**模块标识符**）。
 - `lib/index.js` 的 `export const name`（cordis 插件名）== `cordis.patch.yml` 的 `insert[0].id`，与模块标识符**解耦**。
 - 仓库根目录即包根，无子包目录特例（迁仓前的 `commands-dsh/` 目录名与 npm 包名刻意不同，该特例已消失）。
-- `scripts/check-skill-contract.mjs` 校验「命令 → 技能分支」跨仓契约（技能在 ai-kit，默认读 `$DSH_HOME/skills`）。
+- `scripts/check-skill-contract.mjs` 校验「命令 → 技能分支」跨仓契约（技能在 agent-skills，默认读 `$DSH_HOME/skills`）。
 
 ## 6. 踩坑清单（排障速查）
 

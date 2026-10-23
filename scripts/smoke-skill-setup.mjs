@@ -89,7 +89,7 @@ function check(ok, label, detail) {
 const root = await mkdtemp(join(tmpdir(), "dsh-commands-skill-setup-"));
 const home = join(root, "home");
 const dshHome = join(root, "dsh");
-const localClone = join(root, "ai-kit-clone");
+const localClone = join(root, "agent-skills-clone");
 const stubLog = join(root, "stub.log");
 const stubEnvLog = join(root, "stub-env.log");
 
@@ -121,7 +121,7 @@ try {
 		installTargets,
 	} = await import("../lib/skill-setup.js");
 	const { COMMANDS } = await import("../lib/index.js");
-	check(resolveSkillSource({}) === "morehao/ai-kit", "来源：默认 morehao/ai-kit");
+	check(resolveSkillSource({}) === "morehao/agent-skills", "来源：默认 morehao/agent-skills");
 	check(
 		resolveSkillSource({ DSH_COMMANDS_SKILL_SOURCE: "acme/mirror" }) === "acme/mirror",
 		"来源：DSH_COMMANDS_SKILL_SOURCE 可覆盖（镜像/本地目录逃生口）",
@@ -129,14 +129,14 @@ try {
 
 	// ---- 0) 连通性预检：来源 → URL 归一化 -----------------------------------
 	check(
-		probeUrlForSource("morehao/ai-kit") === "https://github.com/morehao/ai-kit.git",
+		probeUrlForSource("morehao/agent-skills") === "https://github.com/morehao/agent-skills.git",
 		"预检：owner/repo 归一为 GitHub HTTPS",
-		probeUrlForSource("morehao/ai-kit"),
+		probeUrlForSource("morehao/agent-skills"),
 	);
 	check(
-		probeUrlForSource("https://github.com/morehao/ai-kit.git") === "https://github.com/morehao/ai-kit.git",
+		probeUrlForSource("https://github.com/morehao/agent-skills.git") === "https://github.com/morehao/agent-skills.git",
 		"预检：HTTPS URL 原样使用",
-		probeUrlForSource("https://github.com/morehao/ai-kit.git"),
+		probeUrlForSource("https://github.com/morehao/agent-skills.git"),
 	);
 	check(
 		probeUrlForSource("git+https://gitlab.com/acme/tools.git") === "https://gitlab.com/acme/tools.git",
@@ -144,19 +144,19 @@ try {
 		probeUrlForSource("git+https://gitlab.com/acme/tools.git"),
 	);
 	check(
-		probeUrlForSource("git@github.com:morehao/ai-kit.git") === "git@github.com:morehao/ai-kit.git",
+		probeUrlForSource("git@github.com:morehao/agent-skills.git") === "git@github.com:morehao/agent-skills.git",
 		"预检：SSH scp 语法原样使用",
-		probeUrlForSource("git@github.com:morehao/ai-kit.git"),
+		probeUrlForSource("git@github.com:morehao/agent-skills.git"),
 	);
 	check(
-		probeUrlForSource("./local-skill") === undefined && probeUrlForSource("~/ai-kit/skills/svg-maker") === undefined,
+		probeUrlForSource("./local-skill") === undefined && probeUrlForSource("~/agent-skills/skills/svg-maker") === undefined,
 		"预检：本地路径不联网探测",
 	);
-	const skippedProbe = await probeSourceReachability("morehao/ai-kit", {
+	const skippedProbe = await probeSourceReachability("morehao/agent-skills", {
 		env: { DSH_COMMANDS_SKILL_PROBE_MS: "0" },
 	});
 	check(skippedProbe.status === "skipped", "预检：超时设为 0 时跳过", JSON.stringify(skippedProbe));
-	const abortedProbe = await probeSourceReachability("morehao/ai-kit", {
+	const abortedProbe = await probeSourceReachability("morehao/agent-skills", {
 		env: { DSH_COMMANDS_SKILL_PROBE_MS: "8000" },
 		signal: AbortSignal.abort(),
 	});
@@ -761,7 +761,7 @@ try {
 	const { needsConfirmation, confirmationRequest, confirmSkillOperation } = await import("../lib/confirm.js");
 	const actionablePlan = {
 		skipReason: undefined,
-		source: "morehao/ai-kit",
+		source: "morehao/agent-skills",
 		requested: ["git-kit"],
 		targets: ["git-kit"],
 		pending: [{ name: "git-kit", state: "missing", isSymlink: false, isDirectory: false }],

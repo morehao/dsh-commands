@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "DSH Commands (dsh-commands)",
-    "description": "Adds git-kit Git workflows, handoff session transfer, and disk-cleanup space reclamation to DSH as native slash commands (skills are provided by the ai-kit repo): commit message, commit and push, branch, PR/MR create and merge, tag, post-merge release (tag, platform Release, effect verification), repository slimming, star classification, a copy-paste resume prompt for a new session, and disk space cleanup that measures first and only removes what you select."
+    "description": "Adds git-kit Git workflows, handoff session transfer, and disk-cleanup space reclamation to DSH as native slash commands (skills are provided by the agent-skills repo): commit message, commit and push, branch, PR/MR create and merge, tag, post-merge release (tag, platform Release, effect verification), repository slimming, star classification, a copy-paste resume prompt for a new session, and disk space cleanup that measures first and only removes what you select."
   }
 }

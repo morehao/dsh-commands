@@ -1,6 +1,6 @@
 # dsh-commands
 
-一个可扩展的 **dsh 原生斜杠命令集合包**（npm：`@morehao/dsh-commands`）。把 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 的 **git-kit**（Git 工作流）、**handoff**（跨会话交接）与 **disk-cleanup**（磁盘空间回收）接入为 dsh 命令。
+一个可扩展的 **dsh 原生斜杠命令集合包**（npm：`@morehao/dsh-commands`）。把 [`morehao/agent-skills`](https://github.com/morehao/agent-skills) 的 **git-kit**（Git 工作流）、**handoff**（跨会话交接）与 **disk-cleanup**（磁盘空间回收）接入为 dsh 命令。
 
 命令只声明「命令 → 技能分支」的意图，执行逻辑与唯一真源在对应 skill 里，因此与 opencode 入口、自然语言触发共用同一套实现。本仓不含 skill 逻辑；将来其它 skill 的命令，往 `lib/index.js` 的 `COMMANDS` 表加一行即可。
 
@@ -28,10 +28,10 @@
 |---|---|---|
 | `/skill-init` | `[--update [技能名...]] [--yes]` | 检查并安装插件依赖的技能，软链进 dsh；**只在确定要写盘时**确认（缺失/待修复、或已知上游有更新）。上游有更新的技能不会被静默覆盖：`/skill-init` 只报告，装到最新要用 `--update`（可指定技能名，显式更新不弹确认）；`--yes` 跳过确认 |
 
-额外技能（例如 ai-kit 的 `tech-design`、`project-insight`）不再由插件安装：dsh 本身会扫描 `~/.agents/skills`，直接执行下面这条即可，或者用自然语言让 agent 装：
+额外技能（例如 agent-skills 的 `tech-design`、`project-insight`）不再由插件安装：dsh 本身会扫描 `~/.agents/skills`，直接执行下面这条即可，或者用自然语言让 agent 装：
 
 ```bash
-npx -y skills add morehao/ai-kit --skill tech-design -g -a universal -y
+npx -y skills add morehao/agent-skills --skill tech-design -g -a universal -y
 ```
 
 长任务会挂到 dsh 后台任务上：会话头部实时显示阶段，面板里是 `skills` CLI 的流式输出，可两击停止，且不触发模型回合。web 端由 `lib/client.js` 接管命令卡，执行中显示阶段、计时、日志和停止；完成/失败后卡片保留结论。切到别的会话时，右下角会出现应用级完成提示，「技能维护」会话保留未读点，点开即清。每条本地命令结束都会把回执交给会话：默认发一条 notice 形式的执行报告并唤醒一轮让 agent 复核（`/skill-init：✓ 无变更 · 1.4s` + 2–3 行结论），所以新建会话里也看得到结果；`DSH_COMMANDS_SKILL_NOTIFY=notice` 可降级为只记录不唤醒。命令卡片**首行是结论**（`✓ 无变更` / `✅ 已完成：N 项变更` / `✅ 已更新：…` / `ℹ 无变更，上游有 N 项更新` / `⚠ 已完成，但有 N 项需处理`），第二行是「过程：作业 …」，第三行是「客户端：命令卡已加载 / 未加载」——无事可做时也写清「本次没有变更，未创建后台任务（原因）」，client half 没进页面时首行会直接标 `· 客户端未加载`（重启 dsh 生效）。作业结算时会弹一次完成提示（当前会话也弹），切走后另有未读点。`/skill-init` 只在**确定要写盘**时用 dsh 的问答卡确认一次（缺失/待修复、或已知上游有更新），缓存过期只做只读检查不打断，`--yes` 可跳过；`--update` 是显式更新，不打断。技能来源默认缓存在 `$DSH_HOME/cache/skills-sources`，首次 clone、之后增量 fetch，安装不再每次整仓克隆。详见 [技能自举](./docs/skill-setup.md) 与 [过程可见](./docs/job-progress.md)。
@@ -89,7 +89,7 @@ CI 在 PR 上校验脚本语法、三处命名一致、打包白名单与技能�
 | [过程可见](./docs/job-progress.md) | 后台任务、作业面板、无事可做、降级 |
 | [开发与测试](./docs/development.md) | 目录、扩展命令、契约校验、冒烟、CI、命名约定 |
 | [发布说明](./docs/publishing.md) | npm OIDC 发布、一次性配置、排障 |
-| [历史](./docs/history.md) | 从 ai-kit 拆仓的记录 |
+| [历史](./docs/history.md) | 从 agent-skills 拆仓的记录 |
 
 ## 许可
 

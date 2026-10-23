@@ -1,6 +1,6 @@
 # 架构与原理
 
-本仓只做 **dsh 分发/适配单元**：一张意图表 + locale/icon + 发布链，**不含任何 skill 逻辑**。技能本身由 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 提供；命令与 ai-kit 里 opencode 侧的 `commands-opencode/git/*.md`、`commands-opencode/handoff.md`、`commands-opencode/cleanup.md`、以及自然语言触发，是同一条 skill 的多条入口，只声明意图、不重复逻辑。
+本仓只做 **dsh 分发/适配单元**：一张意图表 + locale/icon + 发布链，**不含任何 skill 逻辑**。技能本身由 [`morehao/agent-skills`](https://github.com/morehao/agent-skills) 提供；命令与 agent-skills 里 opencode 侧的 `commands-opencode/git/*.md`、`commands-opencode/handoff.md`、`commands-opencode/cleanup.md`、以及自然语言触发，是同一条 skill 的多条入口，只声明意图、不重复逻辑。
 
 ## 命令 = 意图表
 
@@ -90,7 +90,7 @@ dsh 只本地化它自己的 6 条一方命令：客户端 `HOST_DESCRIPTION_KEY
 
 ## 生效与重启
 
-- 编辑技能（`$DSH_HOME/skills/git-kit/`、`$DSH_HOME/skills/handoff/`、`$DSH_HOME/skills/disk-cleanup/`）**无需重启**，下次执行即生效——技能由 ai-kit 提供，与本插件版本无关。技能根有 watcher，安装完也免重启。
+- 编辑技能（`$DSH_HOME/skills/git-kit/`、`$DSH_HOME/skills/handoff/`、`$DSH_HOME/skills/disk-cleanup/`）**无需重启**，下次执行即生效——技能由 agent-skills 提供，与本插件版本无关。技能根有 watcher，安装完也免重启。
 - 修改本插件 `lib/index.js`（含 `COMMANDS` 表）需重启 dsh web 生效。
 - **只有以 `link:` 方式接入时改源码才生效**：若 profile 里装的是 npm 版（`dsh plugin --profile web add @morehao/dsh-commands`），profile 下的 `node_modules` 是一份**拷贝**，改仓库源码不会生效，需先升版本发版再重装。
 
@@ -102,7 +102,7 @@ dsh 的插件页（侧栏「插件」→ 组合包详情与组件行）在**不�
 - 图标取自 `package.json` 的 `icon`（优先）或导出的 `./icon`；格式限 SVG/PNG/JPEG/WebP，且不超过 256 KiB。
 - 这些资源必须同时写进 `exports` 与 `files`；`package.json` 也要导出（`"./package.json": "./package.json"`）。否则「缺 locale 时回退到 package.json 的 `name` / `description`」这条兜底会因 `ERR_PACKAGE_PATH_NOT_EXPORTED` 静默失效：标题退化成模块名、描述为空，组件行还会多出一行与标题重复的包名。这正是本插件此前与 `dsh-context` 等信息完整的插件在页面上出现差异的原因。
 
-> 标题表达「这个插件是什么」（`dsh 命令集 (dsh-commands)`），不表达「它从哪个仓来」——所以标题里**不写仓名**；「技能由 ai-kit 仓提供」只写在 `description` 末尾。
+> 标题表达「这个插件是什么」（`dsh 命令集 (dsh-commands)`），不表达「它从哪个仓来」——所以标题里**不写仓名**；「技能由 agent-skills 仓提供」只写在 `description` 末尾。
 
 ## 扩展命令
 

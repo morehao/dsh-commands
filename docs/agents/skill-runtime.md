@@ -56,7 +56,7 @@
 |---|---|
 | `DSH_COMMANDS_SKILL_CLI_OVERRIDE` | 完全替换 CLI 命令本体；用于测试桩/自定义安装；跳过缓存、预检与 `--json` |
 | `DSH_COMMANDS_SKILL_NPX_SPEC` | 显式走 `npx -y <spec>`；不设时优先用依赖里的 `skills` |
-| `DSH_COMMANDS_SKILL_SOURCE` | 来源，默认 `morehao/ai-kit`；可换镜像/本地目录 |
+| `DSH_COMMANDS_SKILL_SOURCE` | 来源，默认 `morehao/agent-skills`；可换镜像/本地目录 |
 | `DSH_COMMANDS_SKILL_TIMEOUT_MS` | 外层硬超时，默认 120s |
 | `DSH_COMMANDS_SKILL_PROBE_MS` | 连通性预检超时，默认 8000ms；`0` 关闭 |
 | `DSH_COMMANDS_SKILL_CACHE_TTL_MS` | 来源缓存 TTL |
