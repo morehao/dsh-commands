@@ -598,7 +598,12 @@ try {
 	const e2eJobs = createFakeJobs();
 	apply({
 		effect: (generator) => driveEffect(generator),
-		get: (name) => (name === "jobs" ? e2eJobs.api : undefined),
+		get: (name) =>
+			name === "jobs"
+				? e2eJobs.api
+				: name === "clientModules"
+					? { graph: () => ({ entries: [{ id: "@morehao/dsh-commands" }] }) }
+					: undefined,
 		commands: {
 			register(definition) {
 				registered.set(definition.name, definition);
@@ -629,7 +634,8 @@ try {
 	const e2eLines = e2eResult.text.split("\n");
 	check(e2eLines[0]?.includes("· 后台作业"), "e2e：首行带后台作业标记", e2eLines[0]);
 	check(e2eLines[1]?.startsWith("过程：作业"), "e2e：过程提示在第二行", e2eLines[1]);
-	check(e2eLines[2]?.startsWith("技能："), "e2e：技能明细从第三行开始", e2eLines[2]);
+	check(e2eLines[2]?.startsWith("客户端：命令卡已加载"), "e2e：客户端卡状态在第三行", e2eLines[2]);
+	check(e2eLines[3]?.startsWith("技能："), "e2e：技能明细从第四行开始", e2eLines[3]);
 	check(e2eResult.text.includes("过程：作业 skill-init-fake"), "e2e：回执第二行指向作业", e2eResult.text);
 	check(e2eJobs.state.starts[0]?.owner === "session-e2e", "e2e：作业 owner 是当前会话", JSON.stringify(e2eJobs.state.starts[0]));
 
@@ -974,6 +980,51 @@ try {
 		JSON.stringify(changedArgv),
 	);
 	check(changedText.startsWith("✅ 已完成"), "init：重装后首行是完成结论", changedText);
+
+	// ---- 12) 客户端卡自证：client half 没加载时必须写在回执里 -----------------
+	// 真实故障：desktop host 先启动、插件后安装，client half 不进 boot graph，
+	// 自绘命令卡/完成提示/未读点全部静默 —— 回执必须自己说出来。
+	const mountWith = (clientModules) => {
+		const mounted = new Map();
+		const jobs = createFakeJobs();
+		apply({
+			effect: (generator) => driveEffect(generator),
+			get: (name) =>
+				name === "jobs" ? jobs.api : name === "clientModules" ? clientModules : undefined,
+			commands: {
+				register(definition) {
+					mounted.set(definition.name, definition);
+					return () => mounted.delete(definition.name);
+				},
+			},
+		});
+		return mounted.get("skill-init");
+	};
+
+	const missingClient = await mountWith({
+		graph: () => ({ entries: [{ id: "@deepseek-ai/dsh-api-gateway" }] }),
+	}).handler({ rawInput: "", signal: undefined, agent: { session: { id: "session-client-missing" } } });
+	check(
+		missingClient.text.startsWith("✓ 无变更") && missingClient.text.includes("客户端未加载"),
+		"客户端：client half 不在 boot graph 时首行标「客户端未加载」",
+		missingClient.text,
+	);
+	check(
+		missingClient.text.includes("重启 dsh 后生效"),
+		"客户端：给出重启 dsh 的下一步",
+		missingClient.text,
+	);
+
+	const unknownClient = await mountWith(undefined).handler({
+		rawInput: "",
+		signal: undefined,
+		agent: { session: { id: "session-client-unknown" } },
+	});
+	check(
+		unknownClient.text.includes("客户端：命令卡状态未知"),
+		"客户端：clientModules 不可用时标「状态未知」而非假装已加载",
+		unknownClient.text,
+	);
 } finally {
 	await rm(root, { recursive: true, force: true });
 }

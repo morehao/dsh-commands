@@ -71,6 +71,7 @@
 - 取消只终止子进程，不提前结束等待；`signal` 中止 → `jobs.kill`，最终返回 `{ killed: true }`。
 - `ctx.jobs` 缺失、无控制器、并发上限、无 owner：退回直接执行（`NO_REPORTER`），语义不变；`apply` 不把 `jobs` 写进 `inject`。
 - 无事可做时 `plan.skipReason` 有值：不建作业，但工作仍以无 reporter 跑一遍（幂等修复）；这类路径没有作业事件，完成感由命令卡的 `无变更` 态 + 回执第二行承担。
+- **回执必须自证 client half 是否加载**：`clientHalfState(ctx)` 读 `ctx.get("clientModules").graph().entries` 判断本包行是否在 boot graph 里。dsh 的客户端模块表只在启动时构建，运行中新装的包不会自动进表（host half 会被 hmr 热加载，client half 不会），此时所有自绘 UI 静默消失。未加载时首行标 `· 客户端未加载`、第三行给「重启 dsh 后生效」——不要删这行，它是这种失败唯一的用户可见线索。
 
 ## 7. 子进程与文本
 

@@ -4,6 +4,13 @@
 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 的 `commands-dsh/` 目录发布，
 2026-10 起在本仓发布；npm 包名未变，版本号连续。
 
+## [未发布]
+
+### 修复
+
+- **`/skill-init` 回执自证客户端卡是否加载**：dsh 的客户端模块表在启动时构建，运行中新装/升级的包不会自动进 boot graph（host half 会被 hmr 热加载，client half 不会），此时自绘命令卡、完成提示、未读点全部静默消失，用户只看到一行通用命令。回执现在按 `ctx.get("clientModules").graph().entries` 判断本包行是否存在：未加载时首行标 `· 客户端未加载`、第三行给「重启 dsh 后生效；Settings → Plugins 可看同步状态」；正常时第三行写「客户端：命令卡已加载（web）」；服务不可用写「状态未知」，不假装已加载。
+- 文档补充这条排障路径（[过程可见](docs/job-progress.md)），并把回执行号约定改为「第二行过程 / 第三行客户端卡 / 第四行起明细」。
+
 ## [v0.2.1] - 2026-10-23
 
 ### 变更
