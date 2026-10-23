@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [v0.1.14] - 2026-10-23
+
 ### 新增
 
 - **`/skill-init`、`/skill-install` 执行前确认**：`plan` 判定有变更（安装/替换软链、真实目录仍需装 canonical、缓存过期需联网检查）或 `/skill-install` 要装整个来源时，通过 dsh 的 `ctx.userQuestions` 弹一次「继续执行 / 取消」；取消直接返回「已取消，未做任何变更」并不建作业。`/skill-install` 不写来源时先问来源；`/skill-update` 是显式更新，不弹确认。`--yes` 跳过确认；没有问答 UI/活 agent/被委派时降级为直接执行并在回执说明。
