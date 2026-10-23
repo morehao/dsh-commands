@@ -21,7 +21,7 @@
 
 1. 解析 `--yes`；`/skill-install` 无来源时先通过 `ctx.userQuestions` 问来源（无法问就保留旧「缺少来源」错误）。
 2. `def.plan(COMMANDS, input, options)` → `planSkillOperation()`；纯本地，不联网、不写盘。
-3. 有副作用且未 `--yes` 时 `confirmSkillOperation()`：把变更/跳过项摊给用户，选「继续执行 / 取消」。没有 userQuestions 或没有活 agent 时**不阻塞**，直接执行并在回执补一行说明。
+3. 有副作用且未 `--yes` 时 `confirmSkillOperation()`：把变更/跳过项摊给用户，按命令给出「处理全部 / 只补缺失 / 取消」或「全部安装 / 只装缺少的 / 取消」，返回 `choice`（`all` / `missing`）。没有 userQuestions 或没有活 agent 时**不阻塞**，直接执行并在回执补一行说明。
 4. `runInJob({ jobs, owner, kind, label: def.label(input, plan), signal, skip: plan.skipReason, work })`。
 5. `work` 里调 `def.run(...)`；`run*` 只执行 plan，不再重复 inspect / 比对 hash。
 6. 结算：`run*` 首行是结论式 `✓/✅/⚠`，handler 把「过程：作业 …」放到第二行，并在有作业时给首行加 `· 后台作业` 标记；无事可做时首行仍是结论，第二行解释为什么没有作业。
@@ -37,6 +37,7 @@
 - **单一写入锁**：同一 `DSH_HOME` + canonical 目录同时只允许一个技能写操作；第二次直接拒绝，不并行 clone。
 - **`-a universal` 必须显式给**；不要用 `skills update`（内部 spawn 可能装到所有 agent 目录），`/skill-update` 也用 `add`。
 - **确认是可选增强**：只有 `plan` 判定有变更（安装了/需要安装、缓存过期需要联网检查）时才问；真实目录/文件虽然不会替换链接，但来源仍会装进 canonical，所以同样会问。`--yes` 完全跳过；`ctx.userQuestions`/活 agent 缺失时降级执行，不能把命令卡死。只有 `ASK_CANCELLED` / `ASK_ABORTED` 才算用户取消。
+- **choice 只影响执行范围，不改变 plan**：`choice=missing` 时 `runSkillInit` 只处理 `state=missing`，跳过上游比对和已有条目；`runSkillInstall` 的 `onlyMissing` 只在远端缓存来源上生效（本地路径/CLI override 列不出来源，仍按原范围）。
 
 ## 4. 缓存与 TTL
 
@@ -62,7 +63,7 @@
 
 ## 6. 作业与取消
 
-- 命令面没有进度通道；过程走 `ctx.jobs`：`reporter.progress()` 更新作业行，`reporter.write()` 写面板。
+- host 命令面没有进度通道；过程走 `ctx.jobs`：`reporter.progress()` 更新作业行，`reporter.write()` 写面板。web client half（`lib/client.js`）再把 `ctx.jobs` 快照渲染回命令卡，并在离开会话时补完成提示。
 - **必须 `wait()` 到终态**：`runInJob` 自己切片 `jobs.wait()`，保持 `awaited=true`，结算不投完成通知、不唤醒模型回合。不要改成订阅事件收尾。
 - 作业结束前写一条 `完成：<结论首行>` 的 progress，结算后作业行仍能看到最终结论；但因为 `awaited`，**不会**再投一条完成通知——这是有意的零 token 取舍。
 - 取消只终止子进程，不提前结束等待；`signal` 中止 → `jobs.kill`，最终返回 `{ killed: true }`。

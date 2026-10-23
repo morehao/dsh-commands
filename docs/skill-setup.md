@@ -2,14 +2,16 @@
 
 `/skill-init`、`/skill-install`、`/skill-update` 不是「意图表」：它们要判断文件状态、建软链、拉上游，结果必须确定，所以直接在 handler 内执行，不交给 agent。
 
-- 实现：`lib/skill-setup.js`（plan + 安装 / 软链 / 校验）、`lib/confirm.js`（执行前确认 / 来源询问 / `--yes` 降级）、`lib/skill-cache.js`（来源缓存 / lock 回写）、`lib/skill-paths.js`（路径）、`lib/text.js`（输出清洗）、`lib/proc.js`（子进程）；长任务的过程包装在 `lib/job-progress.js`（见 [过程可见](./job-progress.md)）。
+- 实现：`lib/skill-setup.js`（plan + 安装 / 软链 / 校验）、`lib/confirm.js`（执行前确认 / 来源询问 / `--yes` 降级）、`lib/skill-cache.js`（来源缓存 / lock 回写）、`lib/skill-paths.js`（路径）、`lib/text.js`（输出清洗）、`lib/proc.js`（子进程）；长任务的过程包装在 `lib/job-progress.js`，web 端的命令卡/完成提示在 `lib/client.js`（见 [过程可见](./job-progress.md)）。
 - 三条命令共用一次 `planSkillOperation()`：本地判定「要不要建作业 / 处理哪些技能 / 是否已最新」，`run*` 只负责执行。同一条规则只有一处实现。
 - 依赖集合仍从 `COMMANDS` 推导（`skill ?? "git-kit"` 去重，导出为 `REQUIRED_SKILLS`），新增委托型命令后自动跟进。
 
 ## 执行前确认与回执
 
-`/skill-init`、`/skill-install` 在 `plan` 判定有可执行变更时，会先通过 dsh 的 `ctx.userQuestions` 弹出一次「继续执行 / 取消」：
+`/skill-init`、`/skill-install` 在 `plan` 判定有可执行变更时，会先通过 dsh 的 `ctx.userQuestions` 弹一次确认；问题、选项和说明按命令与本次 plan 生成，不再复用同一句模板：
 
+- `/skill-init` 有缺失技能时给「处理全部 / 只补缺失」；只有上游更新时给「处理全部」；只有缓存过期时给「联网检查」。选「只补缺失」只处理 `state=missing` 的条目，已有条目不动。
+- `/skill-install <来源> [技能名...]` 的问题带来源与技能数；装整个来源时给「全部安装 /（远端缓存）只装缺少的 / 取消」。
 - 取消 → `已取消 /skill-init，未做任何变更。`，不建作业；
 - 真实目录/文件会跳过链入、不会删除，但来源仍会装到 canonical，所以同样会确认；确认卡会写明这一点；
 - `--yes` 完全跳过确认，适合脚本/自动化；
@@ -133,11 +135,12 @@ npx -y skills add morehao/ai-kit …
 | `~/.dsh/skills` 里没有 | 从缓存安装 `git-kit`、`handoff`、`disk-cleanup` → 软链 `~/.dsh/skills/*` → `~/.agents/skills/*` |
 | 已手工 `git clone ai-kit && ln -s` | 判定为「非托管软链」→ **替换**软链，clone 目录不动 |
 | 已经是托管软链 | 缓存 TTL 内且 hash 一致 → 跳过；TTL 过期 → 检查上游，有变化才重装 |
+| 选了「只补缺失」 | 只装 `state=missing` 的条目，已有条目不动（远端缓存仍可能 fetch 以拿到缺失技能） |
 | 同名位置是真实目录 | 该技能报「拒绝覆盖」，其余照常；回执末尾提示它会遮蔽 canonical 的托管版本 |
 
 顺带校验分支契约（`git-kit` 的 9 个分支文件、`disk-cleanup` 的 `cleanup` 分支；`handoff` 是单分支，只校验 `SKILL.md`），结束提示「无需重启 dsh」。
 
-有可执行变更（安装/替换软链、真实目录仍需装 canonical，或缓存过期需要联网检查）时先弹一次确认，取消则什么都不做。`/skill-init --yes` 跳过确认。
+有可执行变更（安装/替换软链、真实目录仍需装 canonical，或缓存过期需要联网检查）时先弹一次确认，取消则什么都不做；有缺失时可以选「只补缺失」走最短路径。`/skill-init --yes` 跳过确认。
 
 缓存 TTL 内确认最新、或测试桩/本地路径下已托管时，不会创建后台任务，回执首行直接给结论；TTL 过期会建作业检查上游，见 [过程可见](./job-progress.md)。
 
@@ -156,7 +159,7 @@ npx -y skills add morehao/ai-kit …
 /skill-install morehao/ai-kit tech-design --yes                # 跳过确认（自动化）
 ```
 
-**安装不是盲目 no-op**：显式技能名已由同一来源托管时，先比对缓存与 lock；TTL 内且 hash 一致返回「已是最新」，不调 CLI；TTL 过期会 fetch 检查，有变化才重装。拉插件依赖技能的新版本用 `/skill-update`；额外技能用 `/skill-install` 重新检查（或 `npx skills update`，见下节）。不指定技能名时仍会确保缓存可用（TTL 过期才 fetch）并发现新技能；这种「装整个来源」的大动作会先确认一次。
+**安装不是盲目 no-op**：显式技能名已由同一来源托管时，先比对缓存与 lock；TTL 内且 hash 一致返回「已是最新」，不调 CLI；TTL 过期会 fetch 检查，有变化才重装。拉插件依赖技能的新版本用 `/skill-update`；额外技能用 `/skill-install` 重新检查（或 `npx skills update`，见下节）。不指定技能名时仍会确保缓存可用（TTL 过期才 fetch）并发现新技能；这种「装整个来源」的大动作会先确认一次。远端来源还可以选「只装缺少的」：先列出来源里的技能，再过滤掉已经由 skills CLI 托管的条目。
 
 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 现提供 7 个技能：`git-kit`、`handoff`、`disk-cleanup`（插件依赖，由 `/skill-init` 管）与 `project-insight`、`project-wiki`、`svg-maker`、`tech-design`（按需 `/skill-install`）。
 

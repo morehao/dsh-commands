@@ -9,7 +9,7 @@
 //   5) 真实目录           → 拒绝覆盖（不删除、不备份），其余技能不受影响
 //   6) /skill-install     → 任意来源安装（显式技能名 / 装全部 / 缺参数报错），同样只替换软链
 // 另外校验：全程不产生 skills-backup/ 之类的备份目录（设计上不做备份）。
-import { mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readlink, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -720,7 +720,7 @@ try {
 	);
 
 	// ---- 10) 交互确认：有变更先问，取消/继续/--yes 都不炸 ---------------
-	const { askInstallSource, needsConfirmation } = await import("../lib/confirm.js");
+	const { askInstallSource, needsConfirmation, confirmationRequest, confirmSkillOperation } = await import("../lib/confirm.js");
 	const actionablePlan = {
 		skipReason: undefined,
 		source: "morehao/ai-kit",
@@ -748,6 +748,55 @@ try {
 		"install all",
 	);
 	check(needsConfirmation({ name: "skill-update" }, actionablePlan) === false, "confirm：update 是显式更新，不弹确认");
+
+	const managedState = { name: "handoff", state: "managed", isSymlink: true, isDirectory: false };
+	const initPlan = {
+		...actionablePlan,
+		pending: [actionablePlan.pending[0], managedState],
+		states: [actionablePlan.pending[0], managedState],
+		freshness: { cacheSource: true, fresh: false, changed: [] },
+	};
+	const initRequest = confirmationRequest({ name: "skill-init" }, initPlan);
+	check(
+		initRequest.question !== "执行上述技能维护操作，继续执行？" &&
+			initRequest.options.some((option) => option.label === "只补缺失"),
+		"confirm：init 的问题按本次技能生成，并给出「只补缺失」",
+		JSON.stringify(initRequest),
+	);
+	check(
+		initRequest.detail.includes("未安装") && initRequest.detail.includes("已安装"),
+		"confirm：init 的说明逐项列出未安装/已安装",
+		initRequest.detail,
+	);
+	const installRequest = confirmationRequest(
+		{ name: "skill-install" },
+		{
+			...actionablePlan,
+			requested: [],
+			targets: [],
+			pending: [],
+			states: [],
+			source: "acme/bundle",
+			freshness: { cacheSource: true, fresh: false, changed: [] },
+		},
+	);
+	check(
+		installRequest.question.includes("acme/bundle") && installRequest.question !== initRequest.question,
+		"confirm：install 的问题带上来源，不再复用 init 文案",
+		JSON.stringify(installRequest),
+	);
+	const choiceQuestions = {
+		async ask(request) {
+			return { answers: [{ id: request.questions[0].id, selected: ["只补缺失"] }] };
+		},
+	};
+	const missingDecision = await confirmSkillOperation({
+		userQuestions: choiceQuestions,
+		agent: { session: { id: "session-confirm" } },
+		def: { name: "skill-init" },
+		plan: initPlan,
+	});
+	check(missingDecision.action === "proceed" && missingDecision.choice === "missing", "confirm：选择「只补缺失」映射为 choice=missing", JSON.stringify(missingDecision));
 
 	const customQuestions = {
 		async ask(request) {
@@ -805,7 +854,7 @@ try {
 		askedDetail,
 	);
 
-	confirmQuestions.answer = "继续执行";
+	confirmQuestions.answer = "处理全部";
 	confirmResult = await confirmRegistered.get("skill-init").handler({
 		rawInput: "",
 		signal: undefined,
@@ -873,6 +922,24 @@ try {
 	);
 	check(confirmJobs.state.starts.length === 3, "confirm：自定义来源也建作业", JSON.stringify(confirmJobs.state.starts));
 	check(confirmJobs.state.starts[2]?.kind === "skill-install", "confirm：作业 kind 是 skill-install");
+
+	// choice=missing：只补不存在的条目，不重装已托管技能。
+	await rename(linkPath("handoff"), join(root, "handoff-missing-link"));
+	const callsBeforeMissing = await stubCalls();
+	const missingOnlyText = await runSkillInit(COMMANDS, { choice: "missing" });
+	const missingArgv = JSON.parse((await readFile(stubLog, "utf8")).trim().split("\n").pop());
+	check(
+		missingOnlyText.includes("只补缺失") && existsSync(linkPath("handoff")),
+		"init：choice=missing 只补缺失条目并重建软链",
+		missingOnlyText,
+	);
+	check(
+		(await stubCalls()) === callsBeforeMissing + 1 &&
+			missingArgv.filter((arg) => arg === "--skill").length === 1 &&
+			missingArgv.includes("handoff"),
+		"init：choice=missing 只向 CLI 传缺失技能",
+		JSON.stringify(missingArgv),
+	);
 } finally {
 	await rm(root, { recursive: true, force: true });
 }

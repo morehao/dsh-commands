@@ -7,9 +7,9 @@
 
 | 改动 | 必跑 | 说明 |
 |---|---|---|
-| `lib/*.js` | `npm run check` + `node --check` | `npm run check` = 命名 + 打包 + 两个技能冒烟；语法 CI 另跑 |
+| `lib/*.js` | `npm run check` + `node --check` | `npm run check` 先 `node --check lib/client.js`，再命名 + 打包 + 两个技能冒烟；CI 另对全部 `lib/*.js` 做语法检查 |
 | `COMMANDS` / `branch` | 上面 + `node scripts/check-skill-contract.mjs` | 契约校验依赖技能已安装 |
-| `package.json` / `exports` / `files` / 命名 | `node scripts/check-naming.mjs` + `node scripts/check-pack.mjs` | CI 也跑 |
+| `package.json` / `exports` / `files` / 命名 | `node scripts/check-naming.mjs` + `node scripts/check-pack.mjs` | CI 也跑；`dsh.client` 与 `./client` 必须在 `exports` 中，`lib/client.js` 必须入包 |
 | `scripts/*.mjs` | `node --check <file>` + 对应冒烟 | `release-notes` 有自己的冒烟 |
 | CI / release workflow | 本地跑对应脚本；`bash -n scripts/ci-publish.sh` | 不要只改 YAML 不验证 |
 | 纯文档 | 链接与事实核对 | 不跑代码检查 |
@@ -21,17 +21,18 @@
 PR 与 push `main` 触发，机械校验：
 
 1. `bash -n scripts/ci-publish.sh`
-2. `node --check` 所有 `lib/*.js`、两个技能冒烟脚本、`release-notes.mjs`
+2. `node --check` 所有 `lib/*.js`（含 `lib/client.js`）、两个技能冒烟脚本、`smoke-client-bundle.mjs`、`release-notes.mjs`
 3. `node scripts/smoke-release-notes.mjs`（注记 tag → Release body 投影）
 4. `node scripts/check-naming.mjs`
 5. `node scripts/check-pack.mjs`
-6. `node scripts/smoke-skill-setup.mjs`
-7. `node scripts/smoke-skill-cache.mjs`
+6. `node scripts/smoke-client-bundle.mjs`（client half 槽注册 / locale / inject）
+7. `node scripts/smoke-skill-setup.mjs`
+8. `node scripts/smoke-skill-cache.mjs`
 
 注意：
 
 - **跨仓契约校验不在 CI**（依赖 ai-kit 技能目录），需要本地跑。
-- `npm run check` 不含 `release-notes` 冒烟和 `node --check`；本地全量按矩阵补。
+- `npm run check` 含 client 语法/接线冒烟、命名、打包与两个技能冒烟；不含 `release-notes` 冒烟和其余 `lib/*.js` 的 `node --check`，本地全量按矩阵补。
 - CI 不装依赖、不联网；冒烟用 stub / 本地 git。
 
 ## 3. 打包与命名

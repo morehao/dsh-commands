@@ -1,8 +1,6 @@
 # 过程可见（后台任务）
 
-首次 `/skill-init` 要真下上游（首次 clone 实测 8 秒上下；之后 TTL 内约 0.4–1 秒，TTL 过期检查上游约 4–5 秒），而 dsh 的命令面**没有进度通道**：`@deepseek-ai/dsh-commands` 的 `execute()` 只 append `command/run` 和 `command/done` 两个事件，UI 的命令卡片在运行期只能渲染「执行中…」（一方命令 `/compact` 同样如此）。
-
-所以「过程」放在 dsh 的**后台任务**上（`lib/job-progress.js`，用 `ctx.jobs`；base 组合已含 `dsh-jobs-local` + `dsh-tool-jobs`）：
+首次 `/skill-init` 要真下上游（首次 clone 实测 8 秒上下；之后 TTL 内约 0.4–1 秒，TTL 过期检查上游约 4–5 秒）。dsh 的 host 命令面**没有进度通道**：`@deepseek-ai/dsh-commands` 的 `execute()` 只 append `command/run` 和 `command/done` 两个事件。所以过程放在 dsh 的**后台任务**上（`lib/job-progress.js`，用 `ctx.jobs`；base 组合已含 `dsh-jobs-local` + `dsh-tool-jobs`），并由 web client half 把这些快照渲染回命令卡：
 
 | 面 | 内容 |
 |---|---|
@@ -10,22 +8,27 @@
 | 展开的面板 | 阶段流水（`log` 通道）+ `skills` CLI 的**流式输出**（去 ANSI 的纯文本，下载/进度/Done 都在），保留 256 KB，结算后留 16 KB |
 | 行上的停止控件 | 两击停止：先 SIGTERM 再 SIGKILL 子进程，命令卡片结算为「已停止」 |
 | 命令卡片 | **首行是结论**（`✓/✅/⚠` + 变化 + 耗时 + `· 后台作业`），第二行才是「过程：作业 …」；明细在后面，点击展开。无作业时为「过程：未创建后台任务（短因）」 |
+| 客户端命令卡（web） | 执行中显示阶段、计时、可展开日志和停止；完成/失败后保留结论。没有 client half 时回退 dsh 的通用卡 |
 
 阶段文案同时写进作业输出（`log` 通道，只给观察者）：即使本次一步实事没干，展开面板也有可读的执行流水，而不是空白。
 
 ## 执行前确认
 
-有可执行变更（需要安装/替换软链，或缓存过期需要联网检查）时，handler 会在建作业之前用 `ctx.userQuestions` 问一次：
+有可执行变更（需要安装/替换软链，或缓存过期需要联网检查）时，handler 会在建作业之前用 `ctx.userQuestions` 问一次。问题、选项和说明都按命令与本次 plan 生成，不再复用模板句：
 
 ```
-确认技能操作
-  执行上述技能维护操作，继续执行？
-  将安装/修复：disk-cleanup
-  其中 handoff 是真实目录/文件：只会跳过链入、不会删除；来源仍会安装到 canonical
+检查依赖技能
+  处理这 3 个技能？
+  技能现状：
+  ✗ git-kit — 未安装 → 将安装
+  ✓ handoff — 已安装
+  ! disk-cleanup — 真实目录 → 保留，不链入
   来源：morehao/ai-kit
-  [继续执行] [取消]
+  [处理全部] [只补缺失] [取消]
 ```
 
+- `/skill-init` 有缺失时给「处理全部 / 只补缺失」；只有上游更新时给「处理全部」；只有缓存过期时给「联网检查」。`choice` 会传到 `run*`，`missing` 只装 `state=missing` 的条目，已有条目不动（为了拿到缺失技能，远端缓存仍可能 fetch）。
+- `/skill-install <来源> [技能名...]` 的问题带来源和技能数；装整个来源时给「全部安装 /（远端缓存）只装缺少的 / 取消」。
 - 取消 → 回执 `已取消 /skill-init，未做任何变更。`，不建作业。
 - `--yes` → 完全跳过确认，适合自动化。
 - 真实目录/文件会跳过链入、不会删除，但来源仍会装到 canonical，所以同样会问；确认卡会说明这一点。
@@ -57,7 +60,7 @@
 
 第二行固定是「过程：作业 …」/「未创建后台任务（短因）」/「未启用后台任务（原因）」；技能/来源/缓存明细从第三行开始。首行保持短，是为了折叠状态下也能看到结论和 `· 后台作业`。
 
-网络不通时是例外：首次 clone 前的 `git ls-remote` 预检默认 8s 内失败，命令卡片直接出「连不上技能来源 …」并给代理/镜像提示，不需要等 `clone`。网络正常时，首次 clone 约 8s；之后从本地缓存安装约 1–2s；`/skill-update` 强制 fetch 约 4–6s（随网络变化）。这段时间卡片仍显示「执行中…」，阶段文案与流式输出在作业面板里。
+网络不通时是例外：首次 clone 前的 `git ls-remote` 预检默认 8s 内失败，命令卡片直接出「连不上技能来源 …」并给代理/镜像提示，不需要等 `clone`。网络正常时，首次 clone 约 8s；之后从本地缓存安装约 1–2s；`/skill-update` 强制 fetch 约 4–6s（随网络变化）。没有 client half 时，这段时间卡片显示「执行中…」，阶段文案与流式输出在作业面板里；有 client half 时，卡片直接显示阶段、计时和日志。
 
 ## 为什么不耗 token
 
@@ -65,11 +68,28 @@
 
 反过来若改成「订阅结算事件」收尾，就会走通知路径、可能白开一轮，所以代码里固定用 `wait` 循环。
 
-## 完成提示的边界
+## 完成感知
 
-`run*` 在返回前写一条 `完成：<结论>` 的 progress，所以作业结算后，作业行仍保留最终结论；命令卡片也会在结算时出现首行结论。但因为 handler 自己 `wait`（`awaited=true`），`dsh-tool-jobs` **不会**再投一条完成通知：用户切到别的会话/页面时收不到「装好了」的提醒，回来才看到结果。
+`run*` 在返回前写一条 `完成：<结论>` 的 progress，所以作业结算后，作业行仍保留最终结论；命令卡片也会在结算时出现首行结论。因为 handler 自己 `wait`（`awaited=true`），`dsh-tool-jobs` **不会**再投一条完成通知——这条零 token 取舍没有变。
 
-这是有意的零 token 取舍。若以后要补外部完成提醒，只有三条路：不 `wait` 让作业通知走 `dsh-tool-jobs`（可能唤醒模型回合）、加客户端 toast、或完成后 `agent.followup()` 让模型汇报。三者的代价都高于当前方案，先不做。
+离开会话的完成感知由 web client half 补上，不经过 host 通知：
+
+| 场景 | 信号 |
+|---|---|
+| 还在当前会话 | 命令卡切到完成/失败，保留结论、耗时和可展开日志 |
+| 切到别的会话 | `shell.overlay` 的应用级 toast，带「查看」；约 6.5 秒自动关闭，也可手动关 |
+| 稍后才回来 | `sidebar.session.row.leading` 的未读点；打开会话即清。该座位只在会话行空闲时挂载，更高优先的状态会占用它 |
+| 浏览器在后台 | 不覆盖。DOM toast 看不见，需要 title 角标/系统通知（权限），v1 不做 |
+| dsh 已关闭 | 不覆盖。没有推送通道；v1 的 toast/未读是内存态，重启不保留 |
+
+实现要点：
+
+- 命令卡挂载时把 `sessionId` 注册到 client 侧的 tracker；卡片卸载后 tracker 仍持有 `ctx.jobs.watchRows(sessionId)`，直到本次 skill 作业结算。
+- tracker 只对 `kind` 为 `skill-init` / `skill-install` / `skill-update` 的作业发提示；作业结算后推 toast、按当前会话决定是否标未读。
+- 点击「查看」走 `ctx.uiWorkspace.openSession(sessionId)`；当前会话切过去时清未读。
+- 不新增 host 事件、不唤醒模型；客户端的 toast/未读是派生状态，刷新后不保留（v1 内存态）。
+
+如果 client half 没加载，命令卡回退 dsh 通用卡；完成仍只剩卡片，但 host 行为完全不变。
 
 ## 降级
 
@@ -77,10 +97,11 @@
 
 确认交互也会独立降级：`ctx.userQuestions` 缺失、无活 agent 或命令被委派时直接执行，回执末尾补「确认：当前会话不支持交互确认，已直接执行。」
 
-`apply` 不把 `jobs` 写进 `inject`，所以没有 jobs 的组合照常加载。
+host 的 `apply` 不把 `jobs` 写进 `inject`，所以没有 jobs 的组合照常加载。client half 的 `inject` 才包含 `jobs` / `slots` / `locale` / `uiWorkspace`；缺失时整个 client half 不激活，host 命令不受影响。
 
 ## 实现约束
 
 - `lib/skill-setup.js` 的 `planSkillOperation()` 与三个 `run*` 只认 `reporter.progress` / `reporter.write`，不直接接触 `ctx.jobs`；这层适配全在 `lib/job-progress.js` 的 `runInJob` / `NO_REPORTER`。来源缓存与 lock 回写在 `lib/skill-cache.js`；输出清洗与子进程分别在 `lib/text.js` / `lib/proc.js`；执行前确认在 `lib/confirm.js`。
+- `lib/client.js` 是 web client half（预打包 `window.__ModuleLoader__` bundle，不需要构建）：注册 `conversation.chat.commandview`、`shell.overlay`、`sidebar.session.row.leading` 三个槽；把 `ctx.jobs` 快照映射成卡片/提示/未读，不写 host 事件。
 - 失败回执会剥掉 ANSI、框线与 CLI 的 ASCII logo（`lib/text.js` 的 `tail()`），完整输出留在作业面板里；只保留最后 15 行、单行 240 字符、整段 1200 字符，避免 clack 的进度重绘把命令卡片撑到几十 KB。
 - 作业输出先去 ANSI 再旁路：面板是纯文本终端，不去色会把 `[38;5;250m` 之类转义码原样显示。

@@ -1,6 +1,6 @@
 # 开发与测试
 
-本仓没有构建步骤、没有运行时依赖，源码即产物（纯 ESM）。
+host 没有构建步骤，源码即产物（纯 ESM）；唯一运行时依赖是 `skills` CLI。web client half（`lib/client.js`）也是手写的预打包 bundle，不需要前端构建。
 
 ## 目录
 
@@ -13,7 +13,8 @@
 | `lib/text.js` | ANSI 清洗、spinner 折叠、尾部截断 |
 | `lib/proc.js` | 子进程 timeout / abort / 输出上限 |
 | `lib/job-progress.js` | 把长任务挂到 `ctx.jobs`，作业行/面板/停止/回执 |
-| `lib/confirm.js` | 本地命令执行前的 `ctx.userQuestions` 确认、来源询问、`--yes` 降级 |
+| `lib/confirm.js` | 本地命令执行前的 `ctx.userQuestions` 确认、按命令生成范围选项、来源询问、`--yes` 降级 |
+| `lib/client.js` | web client half：命令状态卡、`shell.overlay` 完成提示、会话行未读点 |
 | `locale/{zh,en}.json` | 插件页标题与描述 |
 | `cordis.patch.yml` | dsh profile bundle patch（注册插件） |
 | `scripts/` | 契约校验、冒烟、命名/打包校验、发布脚本 |
