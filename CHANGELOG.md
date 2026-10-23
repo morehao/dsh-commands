@@ -4,7 +4,7 @@
 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 的 `commands-dsh/` 目录发布，
 2026-10 起在本仓发布；npm 包名未变，版本号连续。
 
-## [Unreleased]
+## [v0.2.3] - 2026-10-23
 
 ### 变更
 
