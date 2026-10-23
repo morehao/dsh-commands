@@ -13,53 +13,42 @@ concurrency: ${{ github.workflow }}-${{ github.ref }}
 jobs:
   check:
     name: Pre-publish checks
-    runs-on: ubuntu-latest
+    # 镜像显式钉版本：ubuntu-latest 自 2026-10-19 起分批迁到 26.04（11-19 完成）。
+    # 校验结果不该随镜像漂移，跟随已验证的 24.04；要试新镜像就改成 ubuntu-26.04 单独跑一轮。
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read   # 只读校验，不写仓库
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7   # v5 起跑在 node24 上（v4 会触发 node20 弃用警告）
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7   # 同上，避免被强制从 node20 迁移
         with:
-          node-version: 22
+          node-version: '22'
+          # 本包零 runtime 依赖、CI 不装依赖：显式关掉 setup-node 的自动依赖缓存
+          # （v6 起只要 package.json 有 packageManager 字段就会自动开缓存，别靠字段缺席保平安）。
+          package-manager-cache: false
 
       - name: 发布脚本语法
         run: bash -n scripts/ci-publish.sh
 
+      # 语法自检：扫 lib/ 与 scripts/ 全量 + locale JSON。原先在这里逐个列文件名，
+      # 新增 lib/*.js 忘了补一行就静默漏检。
       - name: 插件语法
-        run: |
-          node --check lib/index.js
-          node --check lib/skill-setup.js
-          node --check lib/skill-cache.js
-          node --check lib/skill-paths.js
-          node --check lib/text.js
-          node --check lib/proc.js
-          node --check lib/job-progress.js
-          node --check lib/confirm.js
-          node --check lib/client.js
-          node --check scripts/smoke-skill-setup.mjs
-          node --check scripts/smoke-skill-cache.mjs
-          node --check scripts/smoke-client-bundle.mjs
+        run: npm run check:syntax
 
       # Release body 由 CI 从注记 tag 投影（见 release.yml），取正文必须与 git-kit 的读回管道逐字一致。
       - name: 发布说明投影（Release body）
-        run: |
-          node --check scripts/release-notes.mjs
-          node scripts/smoke-release-notes.mjs
+        run: npm run check:release-notes
 
       - name: 三处命名一致（包名 / 模块标识符 / 插件名）
-        run: node scripts/check-naming.mjs
+        run: npm run check:naming
 
       - name: 打包内容白名单
-        run: node scripts/check-pack.mjs
+        run: npm run check:pack
 
-      # Client half 接线：加载 bundle，确认命令卡 / 完成提示 / 未读点注册到约定槽。
-      - name: Client bundle 冒烟
-        run: node scripts/smoke-client-bundle.mjs
-
-      # 技能自举（/skill-init、/skill-update）：用 stub 顶替 npx skills，不联网、不碰真实 home。
-      - name: 技能自举冒烟
-        run: node scripts/smoke-skill-setup.mjs
-
-      - name: 技能缓存冒烟
-        run: node scripts/smoke-skill-cache.mjs
+      # 三个离线冒烟的唯一入口（等价 npm test）：client half 接线（命令卡 / 完成提示 / 未读点注册到约定槽）
+      # + 技能自举（stub 顶替 skills CLI）+ 技能缓存（本地 git）。CI 与本地跑的是同一串脚本，不各列一份。
+      - name: 冒烟（npm test）
+        run: npm test
