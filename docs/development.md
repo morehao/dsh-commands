@@ -13,6 +13,7 @@
 | `lib/text.js` | ANSI 清洗、spinner 折叠、尾部截断 |
 | `lib/proc.js` | 子进程 timeout / abort / 输出上限 |
 | `lib/job-progress.js` | 把长任务挂到 `ctx.jobs`，作业行/面板/停止/回执 |
+| `lib/confirm.js` | 本地命令执行前的 `ctx.userQuestions` 确认、来源询问、`--yes` 降级 |
 | `locale/{zh,en}.json` | 插件页标题与描述 |
 | `cordis.patch.yml` | dsh profile bundle patch（注册插件） |
 | `scripts/` | 契约校验、冒烟、命名/打包校验、发布脚本 |
@@ -54,7 +55,8 @@ node scripts/smoke-skill-cache.mjs   # 本地 git 源：cache/TTL/refresh/离线
 - 「缺失 → 装 + 软链 / 已托管 → 跳过 / 非托管软链 → 替换 / 真实目录 → 拒绝覆盖 / 任意来源安装 / 更新」六条路径；
 - 全程不联网、不碰真实 `~/.dsh`，也不会产生备份目录；
 - 失败回执剥框线、ANSI 与 CLI logo，网络不可达时给代理/镜像提示；
-- 过程可见层用假 jobs 注册表断言「只启动一个作业 / kind·owner·label 透传 / 阶段文案刷新 / CLI 输出流入面板 / 结算前已 `wait`（awaited，不投通知）/ 结果带回作业视图 / 作业被停止返回 killed / 取消只 kill 不抢跑 / jobs 缺失与无控制器降级 / `apply()` 注册的 handler 端到端跑通（14 条命令、/cleanup 无参数注入「先给选项」、回执带作业 id）」，共八十余项断言。
+- 过程可见层用假 jobs 注册表断言「只启动一个作业 / kind·owner·label 透传 / 阶段文案刷新 / CLI 输出流入面板 / 结算前已 `wait`（awaited，不投通知）/ 结果带回作业视图 / 作业被停止返回 killed / 取消只 kill 不抢跑 / jobs 缺失与无控制器降级 / `apply()` 注册的 handler 端到端跑通（14 条命令、/cleanup 无参数注入「先给选项」、回执首行结论 + 第二行作业 id）」；
+- 执行前确认用假 `ctx.userQuestions` 断言「有变更才问 / 真实目录也会问（仍装 canonical）/ 取消不建作业 / 继续后正常执行 / `--yes` 跳过 / `/skill-install` 无来源可自由输入来源」，与技能冒烟一起跑，共九十余项断言。
 
 `smoke-skill-cache` 用临时 git 源验证首次 clone、TTL 命中、refresh 更新、`ttl<0` 离线、fetch 失败回退、`--json` 解析与 lock 来源/40 位 git tree hash 回写（24 项，不联网）。
 

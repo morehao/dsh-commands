@@ -2,9 +2,21 @@
 
 `/skill-init`、`/skill-install`、`/skill-update` 不是「意图表」：它们要判断文件状态、建软链、拉上游，结果必须确定，所以直接在 handler 内执行，不交给 agent。
 
-- 实现：`lib/skill-setup.js`（plan + 安装 / 软链 / 校验）、`lib/skill-cache.js`（来源缓存 / lock 回写）、`lib/skill-paths.js`（路径）、`lib/text.js`（输出清洗）、`lib/proc.js`（子进程）；长任务的过程包装在 `lib/job-progress.js`（见 [过程可见](./job-progress.md)）。
+- 实现：`lib/skill-setup.js`（plan + 安装 / 软链 / 校验）、`lib/confirm.js`（执行前确认 / 来源询问 / `--yes` 降级）、`lib/skill-cache.js`（来源缓存 / lock 回写）、`lib/skill-paths.js`（路径）、`lib/text.js`（输出清洗）、`lib/proc.js`（子进程）；长任务的过程包装在 `lib/job-progress.js`（见 [过程可见](./job-progress.md)）。
 - 三条命令共用一次 `planSkillOperation()`：本地判定「要不要建作业 / 处理哪些技能 / 是否已最新」，`run*` 只负责执行。同一条规则只有一处实现。
 - 依赖集合仍从 `COMMANDS` 推导（`skill ?? "git-kit"` 去重，导出为 `REQUIRED_SKILLS`），新增委托型命令后自动跟进。
+
+## 执行前确认与回执
+
+`/skill-init`、`/skill-install` 在 `plan` 判定有可执行变更时，会先通过 dsh 的 `ctx.userQuestions` 弹出一次「继续执行 / 取消」：
+
+- 取消 → `已取消 /skill-init，未做任何变更。`，不建作业；
+- 真实目录/文件会跳过链入、不会删除，但来源仍会装到 canonical，所以同样会确认；确认卡会写明这一点；
+- `--yes` 完全跳过确认，适合脚本/自动化；
+- 没有问答 UI、没有活 agent、或命令被委派时自动降级为直接执行，回执末尾会说明；
+- `/skill-update` 是用户显式要求更新，不弹确认。
+
+回执首行是结论（`✓ 已是最新` / `✅ 已安装：…` / `⚠ 已完成，但有 N 项需处理`），第二行才是「过程：作业 …」；命令卡片折叠时也能一眼看到结果和「后台作业」标记。
 
 ## 软链的作用（以及为什么不是加载必需）
 
@@ -125,6 +137,8 @@ npx -y skills add morehao/ai-kit …
 
 顺带校验分支契约（`git-kit` 的 9 个分支文件、`disk-cleanup` 的 `cleanup` 分支；`handoff` 是单分支，只校验 `SKILL.md`），结束提示「无需重启 dsh」。
 
+有可执行变更（安装/替换软链、真实目录仍需装 canonical，或缓存过期需要联网检查）时先弹一次确认，取消则什么都不做。`/skill-init --yes` 跳过确认。
+
 缓存 TTL 内确认最新、或测试桩/本地路径下已托管时，不会创建后台任务，回执首行直接给结论；TTL 过期会建作业检查上游，见 [过程可见](./job-progress.md)。
 
 已托管但缓存缺失/上游暂时不可达时，`/skill-init`、`/skill-install` 会尽量补链并回执「已安装；上游检查失败」而不是把已装好的环境判失败；`/skill-update` 仍要求 fetch 成功，不拿旧缓存冒充更新。
@@ -136,11 +150,13 @@ npx -y skills add morehao/ai-kit …
 ```bash
 /skill-install morehao/ai-kit tech-design                       # 单个
 /skill-install morehao/ai-kit project-insight project-wiki svg-maker   # 多个
-/skill-install morehao/ai-kit                                  # 全部（按 CLI 结果链入）
+/skill-install morehao/ai-kit                                  # 全部（先确认）
 /skill-install ~/practice/ai/ai-kit/skills/svg-maker           # 本地路径（不建缓存，直接读目录）
+/skill-install                                                 # 不写来源：先问来源
+/skill-install morehao/ai-kit tech-design --yes                # 跳过确认（自动化）
 ```
 
-**安装不是盲目 no-op**：显式技能名已由同一来源托管时，先比对缓存与 lock；TTL 内且 hash 一致返回「已是最新」，不调 CLI；TTL 过期会 fetch 检查，有变化才重装。拉插件依赖技能的新版本用 `/skill-update`；额外技能用 `/skill-install` 重新检查（或 `npx skills update`，见下节）。不指定技能名时仍会确保缓存可用（TTL 过期才 fetch）并发现新技能。
+**安装不是盲目 no-op**：显式技能名已由同一来源托管时，先比对缓存与 lock；TTL 内且 hash 一致返回「已是最新」，不调 CLI；TTL 过期会 fetch 检查，有变化才重装。拉插件依赖技能的新版本用 `/skill-update`；额外技能用 `/skill-install` 重新检查（或 `npx skills update`，见下节）。不指定技能名时仍会确保缓存可用（TTL 过期才 fetch）并发现新技能；这种「装整个来源」的大动作会先确认一次。
 
 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 现提供 7 个技能：`git-kit`、`handoff`、`disk-cleanup`（插件依赖，由 `/skill-init` 管）与 `project-insight`、`project-wiki`、`svg-maker`、`tech-design`（按需 `/skill-install`）。
 
@@ -162,7 +178,7 @@ npx -y skills add morehao/ai-kit …
 /skill-update git-kit    # 只更新一个
 ```
 
-更新流程：强制 `git fetch --depth 1` 刷新缓存 → 从缓存 `skills add` → 回写 lock → 校验软链。fetch 失败时命令明确失败（不拿旧缓存冒充更新）；安装类命令则允许旧缓存并在回执里标注离线。
+更新流程：强制 `git fetch --depth 1` 刷新缓存 → 从缓存 `skills add` → 回写 lock → 校验软链。fetch 失败时命令明确失败（不拿旧缓存冒充更新）；安装类命令则允许旧缓存并在回执里标注离线。`/skill-update` 是用户显式要求更新，不弹确认；`--yes` 对它没有额外作用。
 
 候选集只来自 `COMMANDS` 的依赖（`git-kit`、`handoff`、`disk-cleanup`），`/skill-update svg-maker` 会报「未知技能」。用 `/skill-install` 装进来的额外技能用以下任一方式更新：
 
@@ -187,7 +203,7 @@ npx -y skills update tech-design -g -y       # 绕过插件，直接用上游 ha
 ln -sfn ~/practice/ai/ai-kit/skills/git-kit ~/.dsh/skills/git-kit
 ```
 
-> 这三个命令自 **v0.1.9** 起提供；运行期的作业行 / 流式输出自 **v0.1.10** 起提供；本地缓存与直接调用 CLI、以及 `/cleanup` / `disk-cleanup` 依赖为当前未发布改动。
+> 这三个命令自 **v0.1.9** 起提供；运行期的作业行 / 流式输出自 **v0.1.10** 起提供；本地缓存与直接调用 CLI、`/cleanup` / `disk-cleanup` 依赖、执行前确认与结论式回执为当前未发布改动。
 
 ## 手工准备（不想让插件动 home）
 

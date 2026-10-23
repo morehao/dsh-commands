@@ -222,7 +222,7 @@ try {
 	const callsBefore = await stubCalls();
 	text = await runSkillInit(COMMANDS, {});
 	check(text.includes("已托管，跳过"), "init 幂等：已托管技能跳过", text);
-	check(text.startsWith("✓ 已是最新："), "init 幂等：首行是结论式「已是最新」", text);
+	check(text.startsWith("✓ 已是最新 ·"), "init 幂等：首行是结论式「已是最新」", text);
 	check((await stubCalls()) === callsBefore, "init 幂等：未再次调用 CLI");
 	const idlePlan = await planSkillOperation("skill-init", COMMANDS, "");
 	check(
@@ -253,7 +253,7 @@ try {
 	check(existsSync(join(linkPath("git-kit"), "SKILL.md")), "update：软链仍可读");
 
 	const scoped = await runSkillUpdate(COMMANDS, "handoff", {});
-	check(scoped.includes("技能更新 · handoff ·"), "update：可按技能名限定范围", scoped);
+	check(scoped.includes("✅ 已更新：1 个技能") && scoped.includes("✓ handoff"), "update：可按技能名限定范围", scoped);
 	await runSkillUpdate(COMMANDS, "nonexistent", {}).then(
 		() => check(false, "update：未知技能名应报错"),
 		(error) => check(String(error.message).includes("未知技能"), "update：未知技能名报错", String(error.message)),
@@ -478,8 +478,8 @@ try {
 	check(fake.state.awaited === true, "jobs：结算前已 wait（awaited，不投完成通知）", JSON.stringify(fake.state));
 	check(outcome.job?.id === fake.id, "jobs：结果带回作业视图", JSON.stringify(outcome.job));
 	check(
-		String(outcome.value).includes("技能依赖检查 ·") && !String(outcome.value).includes("CLI："),
-		"jobs：回执是结构化文本（不再塞 CLI 原始输出）",
+		String(outcome.value).startsWith("⚠ 已完成") && !String(outcome.value).includes("CLI："),
+		"jobs：回执首行是结论（不再塞 CLI 原始输出）",
 		outcome.value,
 	);
 
@@ -587,7 +587,7 @@ try {
 		work: () => runSkillUpdate(COMMANDS, "", {}),
 	});
 	check(
-		fellBack.job === undefined && String(fellBack.value).includes("技能更新 ·"),
+		fellBack.job === undefined && String(fellBack.value).includes("✅ 已更新"),
 		"降级：无控制器时退回直接执行（不报失败）",
 		String(fellBack.value),
 	);
@@ -658,8 +658,16 @@ try {
 		signal: undefined,
 		agent: { session: { id: "session-e2e" } },
 	});
-	check(e2eResult.kind === "success" && e2eResult.text.includes("技能依赖检查 ·"), "e2e：/skill-init 返回结构化回执", e2eResult.text);
-	check(e2eResult.text.includes("过程：作业 skill-init-fake"), "e2e：回执末行指向作业", e2eResult.text);
+	check(
+		e2eResult.kind === "success" && e2eResult.text.startsWith("⚠ 已完成"),
+		"e2e：/skill-init 返回结论式回执",
+		e2eResult.text,
+	);
+	const e2eLines = e2eResult.text.split("\n");
+	check(e2eLines[0]?.includes("· 后台作业"), "e2e：首行带后台作业标记", e2eLines[0]);
+	check(e2eLines[1]?.startsWith("过程：作业"), "e2e：过程提示在第二行", e2eLines[1]);
+	check(e2eLines[2]?.startsWith("技能："), "e2e：技能明细从第三行开始", e2eLines[2]);
+	check(e2eResult.text.includes("过程：作业 skill-init-fake"), "e2e：回执第二行指向作业", e2eResult.text);
 	check(e2eJobs.state.starts[0]?.owner === "session-e2e", "e2e：作业 owner 是当前会话", JSON.stringify(e2eJobs.state.starts[0]));
 
 	// /cleanup 与其它命令不同：无参数时必须先问再动（技能第 0 步），不能被通用语带去直接执行。
@@ -709,6 +717,161 @@ try {
 		"e2e：/cleanup 带参数时原样透传范围并提示勾选编码",
 		cleanupArgsText,
 	);
+
+	// ---- 10) 交互确认：有变更先问，取消/继续/--yes 都不炸 ---------------
+	const { askInstallSource, needsConfirmation } = await import("../lib/confirm.js");
+	const actionablePlan = {
+		skipReason: undefined,
+		source: "morehao/ai-kit",
+		requested: ["git-kit"],
+		targets: ["git-kit"],
+		pending: [{ name: "git-kit", state: "missing", isSymlink: false, isDirectory: false }],
+		freshness: { cacheSource: false, changed: [] },
+	};
+	check(
+		needsConfirmation({ name: "skill-init" }, actionablePlan) === true,
+		"confirm：有可执行的待办时需要确认",
+		JSON.stringify(actionablePlan),
+	);
+	check(
+		needsConfirmation(
+			{ name: "skill-init" },
+			{ ...actionablePlan, pending: [{ name: "handoff", state: "unmanaged", isSymlink: false, isDirectory: true }] },
+		) === true,
+		"confirm：真实目录仍会装 canonical，同样需要确认",
+		"blocked plan",
+	);
+	check(
+		needsConfirmation({ name: "skill-install" }, { ...actionablePlan, requested: [] }) === true,
+		"confirm：装整个来源前需要确认",
+		"install all",
+	);
+	check(needsConfirmation({ name: "skill-update" }, actionablePlan) === false, "confirm：update 是显式更新，不弹确认");
+
+	const customQuestions = {
+		async ask(request) {
+			return { answers: [{ id: request.questions[0].id, selected: [], custom: "acme/toolkit" }] };
+		},
+	};
+	const askedSource = await askInstallSource({
+		userQuestions: customQuestions,
+		agent: { session: { id: "session-confirm" } },
+		env: {},
+	});
+	check(
+		askedSource.action === "proceed" && askedSource.source === "acme/toolkit",
+		"confirm：/skill-install 无来源时支持自由输入来源",
+		JSON.stringify(askedSource),
+	);
+
+	// 把 git-kit 换回非托管软链，制造一个「可执行待办 + 真实目录」的混合计划。
+	await rm(linkPath("git-kit"), { force: true });
+	await symlink(localClone, linkPath("git-kit"), "dir");
+	const confirmQuestions = {
+		calls: [],
+		answer: "取消",
+		async ask(request) {
+			this.calls.push(request);
+			return { answers: [{ id: request.questions[0].id, selected: [this.answer] }] };
+		},
+	};
+	const confirmJobs = createFakeJobs();
+	const confirmRegistered = new Map();
+	apply({
+		effect: (generator) => driveEffect(generator),
+		get: (name) =>
+			name === "jobs" ? confirmJobs.api : name === "userQuestions" ? confirmQuestions : undefined,
+		commands: {
+			register(definition) {
+				confirmRegistered.set(definition.name, definition);
+				return () => confirmRegistered.delete(definition.name);
+			},
+		},
+	});
+	const confirmAgent = { session: { id: "session-confirm" } };
+	let confirmResult = await confirmRegistered.get("skill-init").handler({
+		rawInput: "",
+		signal: undefined,
+		agent: confirmAgent,
+	});
+	check(confirmResult.text.includes("已取消 /skill-init"), "confirm：用户取消时不执行", confirmResult.text);
+	check(confirmJobs.state.starts.length === 0, "confirm：取消后不建作业", JSON.stringify(confirmJobs.state.starts));
+	check(confirmQuestions.calls.length === 1, "confirm：只问一次", String(confirmQuestions.calls.length));
+	const askedDetail = confirmQuestions.calls[0]?.questions?.[0]?.detail ?? "";
+	check(
+		askedDetail.includes("git-kit") && askedDetail.includes("真实目录/文件"),
+		"confirm：问题里说明要改什么、哪些会跳过",
+		askedDetail,
+	);
+
+	confirmQuestions.answer = "继续执行";
+	confirmResult = await confirmRegistered.get("skill-init").handler({
+		rawInput: "",
+		signal: undefined,
+		agent: confirmAgent,
+	});
+	check(
+		confirmResult.text.startsWith("⚠ 已完成") || confirmResult.text.startsWith("✅ 已完成"),
+		"confirm：用户继续后正常执行并出结论",
+		confirmResult.text,
+	);
+	check(confirmJobs.state.starts.length === 1, "confirm：继续后建一个作业", JSON.stringify(confirmJobs.state.starts));
+
+	// --yes 跳过确认；即使 UI 会返回「取消」也不应被问到。
+	await rm(linkPath("git-kit"), { force: true });
+	await symlink(localClone, linkPath("git-kit"), "dir");
+	const callsBeforeYes = confirmQuestions.calls.length;
+	confirmQuestions.answer = "取消";
+	const yesResult = await confirmRegistered.get("skill-init").handler({
+		rawInput: "--yes",
+		signal: undefined,
+		agent: confirmAgent,
+	});
+	check(
+		confirmQuestions.calls.length === callsBeforeYes && !yesResult.text.includes("已取消"),
+		"--yes：跳过交互确认",
+		JSON.stringify({ calls: confirmQuestions.calls.length, text: yesResult.text.slice(0, 80) }),
+	);
+	check(confirmJobs.state.starts.length === 2, "--yes：仍然执行作业", JSON.stringify(confirmJobs.state.starts));
+
+	// /skill-install 无来源：问题卡返回自定义来源后，直接进入安装（不再追问「装全部」）。
+	const sourceQuestions = {
+		calls: [],
+		async ask(request) {
+			this.calls.push(request);
+			return { answers: [{ id: request.questions[0].id, selected: [], custom: "acme/bundle" }] };
+		},
+	};
+	const sourceRegistered = new Map();
+	apply({
+		effect: (generator) => driveEffect(generator),
+		get: (name) =>
+			name === "jobs" ? confirmJobs.api : name === "userQuestions" ? sourceQuestions : undefined,
+		commands: {
+			register(definition) {
+				sourceRegistered.set(definition.name, definition);
+				return () => sourceRegistered.delete(definition.name);
+			},
+		},
+	});
+	const sourceResult = await sourceRegistered.get("skill-install").handler({
+		rawInput: "",
+		signal: undefined,
+		agent: confirmAgent,
+	});
+	check(sourceQuestions.calls.length === 1, "confirm：/skill-install 无来源只问一次来源", String(sourceQuestions.calls.length));
+	check(
+		sourceQuestions.calls[0]?.questions?.[0]?.id === "skill-install-source",
+		"confirm：来源问题 id 稳定",
+		JSON.stringify(sourceQuestions.calls[0]?.questions?.[0]),
+	);
+	check(
+		sourceResult.kind === "success" && sourceResult.text.includes("acme/bundle"),
+		"confirm：自定义来源进入安装流程",
+		sourceResult.text,
+	);
+	check(confirmJobs.state.starts.length === 3, "confirm：自定义来源也建作业", JSON.stringify(confirmJobs.state.starts));
+	check(confirmJobs.state.starts[2]?.kind === "skill-install", "confirm：作业 kind 是 skill-install");
 } finally {
 	await rm(root, { recursive: true, force: true });
 }

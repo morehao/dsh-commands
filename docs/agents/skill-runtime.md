@@ -13,17 +13,20 @@
 | `lib/proc.js` | 子进程 timeout / abort / 输出上限 | 不经 shell 拼命令 |
 | `lib/text.js` | ANSI / 框线 / spinner 清洗、tail 截断 | 不加业务语义 |
 | `lib/job-progress.js` | 把 work 挂到 `ctx.jobs`、`wait` 收尾、降级 | 不含技能逻辑 |
+| `lib/confirm.js` | 执行前的 `ctx.userQuestions` 确认、来源询问、`--yes`/不可用降级 | 不执行安装、不碰 `ctx.jobs` |
 
 ## 2. 调用链
 
 本地型 handler：
 
-1. `def.plan(COMMANDS, input, options)` → `planSkillOperation()`；纯本地，不联网、不写盘。
-2. `runInJob({ jobs, owner, kind, label, signal, skip: plan.skipReason, work })`。
-3. `work` 里调 `def.run(...)`；`run*` 只执行 plan，不再重复 inspect / 比对 hash。
-4. 结算：成功返回文本 + 「过程：作业 …」/「未创建后台任务（短因）」/「未启用后台任务（原因）」。
+1. 解析 `--yes`；`/skill-install` 无来源时先通过 `ctx.userQuestions` 问来源（无法问就保留旧「缺少来源」错误）。
+2. `def.plan(COMMANDS, input, options)` → `planSkillOperation()`；纯本地，不联网、不写盘。
+3. 有副作用且未 `--yes` 时 `confirmSkillOperation()`：把变更/跳过项摊给用户，选「继续执行 / 取消」。没有 userQuestions 或没有活 agent 时**不阻塞**，直接执行并在回执补一行说明。
+4. `runInJob({ jobs, owner, kind, label: def.label(input, plan), signal, skip: plan.skipReason, work })`。
+5. `work` 里调 `def.run(...)`；`run*` 只执行 plan，不再重复 inspect / 比对 hash。
+6. 结算：`run*` 首行是结论式 `✓/✅/⚠`，handler 把「过程：作业 …」放到第二行，并在有作业时给首行加 `· 后台作业` 标记；无事可做时首行仍是结论，第二行解释为什么没有作业。
 
-`plan` 只算一次是硬约束：handler 与 run 各算一遍会产生两套 skip 文案和不一致的判定。
+`plan` 只算一次是硬约束：handler 与 run 各算一遍会产生两套 skip 文案和不一致的判定。只有「`/skill-install` 无来源、先问来源」这一种情况会在拿到来源后重新 plan 一次。
 
 ## 3. 必须保持的不变量
 
@@ -33,6 +36,7 @@
 - **lock 来源回写**：`skills add <本地缓存>` 会把 lock 写成 local；安装后必须回写 `source` / `sourceType` / `sourceUrl` / `skillPath` / `skillFolderHash`，否则其他 agent 的 `npx skills update` 认不出远端。
 - **单一写入锁**：同一 `DSH_HOME` + canonical 目录同时只允许一个技能写操作；第二次直接拒绝，不并行 clone。
 - **`-a universal` 必须显式给**；不要用 `skills update`（内部 spawn 可能装到所有 agent 目录），`/skill-update` 也用 `add`。
+- **确认是可选增强**：只有 `plan` 判定有变更（安装了/需要安装、缓存过期需要联网检查）时才问；真实目录/文件虽然不会替换链接，但来源仍会装进 canonical，所以同样会问。`--yes` 完全跳过；`ctx.userQuestions`/活 agent 缺失时降级执行，不能把命令卡死。只有 `ASK_CANCELLED` / `ASK_ABORTED` 才算用户取消。
 
 ## 4. 缓存与 TTL
 
@@ -60,6 +64,7 @@
 
 - 命令面没有进度通道；过程走 `ctx.jobs`：`reporter.progress()` 更新作业行，`reporter.write()` 写面板。
 - **必须 `wait()` 到终态**：`runInJob` 自己切片 `jobs.wait()`，保持 `awaited=true`，结算不投完成通知、不唤醒模型回合。不要改成订阅事件收尾。
+- 作业结束前写一条 `完成：<结论首行>` 的 progress，结算后作业行仍能看到最终结论；但因为 `awaited`，**不会**再投一条完成通知——这是有意的零 token 取舍。
 - 取消只终止子进程，不提前结束等待；`signal` 中止 → `jobs.kill`，最终返回 `{ killed: true }`。
 - `ctx.jobs` 缺失、无控制器、并发上限、无 owner：退回直接执行（`NO_REPORTER`），语义不变；`apply` 不把 `jobs` 写进 `inject`。
 - 无事可做时 `plan.skipReason` 有值：不建作业，但工作仍以无 reporter 跑一遍（幂等修复）。
@@ -80,7 +85,9 @@
 
 ## 9. 修改检查清单
 
-- [ ] `plan` 仍然只算一次；`run*` 没有重复 inspect / hash。
+- [ ] `plan` 仍然只算一次；`run*` 没有重复 inspect / hash（`/skill-install` 问来源后重算除外）。
+- [ ] 确认只在有可执行变更时出现；`--yes`、无 userQuestions、无 agent 都不会卡住命令。
+- [ ] 回执首行是 `✓/✅/⚠` 结论；「过程：作业 …」不再放在最后一行。
 - [ ] 没有新增备份目录、没有删真实目录/文件。
 - [ ] 软链仍指向 canonical；lock 回写字段完整。
 - [ ] 新行为有离线冒烟覆盖；失败路径有可读回执。

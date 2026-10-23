@@ -31,14 +31,15 @@ export const REQUIRED_SKILLS = Object.freeze(referencedSkills(COMMANDS));
 ```js
 {
   plan: (commands, input, options) => planSkillOperation("skill-init", commands, input, options),
-  label: (input) => "检查并安装插件依赖的技能",
+  label: (_input, plan) => `检查依赖技能（${plan.targets.join("、")}）`,
   run: (commands, input, options) => runSkillInit(commands, options),
 }
 ```
 
 - `plan` 只做本地判定（不联网）：要不要建作业、处理哪些技能、是否已最新；
-- handler 把 `plan` 的结果同时用于 `runInJob.skip` 与 `run({ plan })`，所以同一条规则只算一次；
-- `run` 不再自己 inspect 技能或比对 hash，只执行 plan 与措辞。
+- handler 把 `plan` 的结果同时用于 `runInJob.skip`、`run({ plan })` 与作业 label，所以同一条规则只算一次；
+- 有可执行变更时，handler 先通过 `ctx.userQuestions` 让用户确认（`lib/confirm.js`）；`--yes` 跳过，无问答能力时降级直接执行；
+- `run` 不再自己 inspect 技能或比对 hash，只执行 plan 与措辞；回执首行是 `✓/✅/⚠` 结论，第二行才是「过程：作业 …」。
 
 ## 执行链路
 

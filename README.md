@@ -26,11 +26,11 @@
 
 | 命令 | 参数 | 作用 |
 |---|---|---|
-| `/skill-init` | 无 | 检查并安装插件依赖的技能，软链进 dsh |
-| `/skill-install` | `<来源> [技能名...]` | 安装任意来源的技能并软链进 dsh |
-| `/skill-update` | `[技能名]` | 把依赖技能更新到上游最新 |
+| `/skill-init` | `[--yes]` | 检查并安装插件依赖的技能，软链进 dsh；有变更时先确认 |
+| `/skill-install` | `<来源> [技能名...] [--yes]` | 安装任意来源的技能并软链进 dsh；不写来源会先问，装全部/有变更时先确认 |
+| `/skill-update` | `[技能名]` | 把依赖技能更新到上游最新；显式更新，不弹确认 |
 
-长任务会挂到 dsh 后台任务上：会话头部实时显示阶段，面板里是 `skills` CLI 的流式输出，可两击停止，且不触发模型回合。技能来源默认缓存在 `$DSH_HOME/cache/skills-sources`，首次 clone、之后增量 fetch，安装不再每次整仓克隆。详见 [技能自举](./docs/skill-setup.md) 与 [过程可见](./docs/job-progress.md)。
+长任务会挂到 dsh 后台任务上：会话头部实时显示阶段，面板里是 `skills` CLI 的流式输出，可两击停止，且不触发模型回合。命令卡片**首行是结论**（`✓ 已是最新` / `✅ 已安装：…` / `⚠ 已完成，但有 N 项需处理`），第二行才是「过程：作业 …」；有副作用前会先用 dsh 的问答卡确认一次，`--yes` 可跳过。技能来源默认缓存在 `$DSH_HOME/cache/skills-sources`，首次 clone、之后增量 fetch，安装不再每次整仓克隆。详见 [技能自举](./docs/skill-setup.md) 与 [过程可见](./docs/job-progress.md)。
 
 ## 安装
 
@@ -41,7 +41,7 @@
 dsh plugin --profile <profile> add @morehao/dsh-commands
 ```
 
-装完在 dsh 里执行 `/skill-init`：检查 `git-kit` / `handoff` / `disk-cleanup`，缺失则从本地缓存（首次自动 clone）用 `skills` CLI 全局安装并软链进 `$DSH_HOME/skills`（默认 `~/.dsh/skills`）；已托管且缓存 TTL 内与 lock 一致则跳过，TTL 过期会检查上游，有变化才重装。之后用 `/skill-update` 强制跟上游。安装结果仍是标准的 `~/.agents/skills` + `.skill-lock.json`，其他 agent 可以继续用 `npx skills`。
+装完在 dsh 里执行 `/skill-init`：检查 `git-kit` / `handoff` / `disk-cleanup`，缺失则从本地缓存（首次自动 clone）用 `skills` CLI 全局安装并软链进 `$DSH_HOME/skills`（默认 `~/.dsh/skills`）；已托管且缓存 TTL 内与 lock 一致则跳过，TTL 过期会检查上游，有变化才重装。有可替换项时会先弹一次确认，`/skill-init --yes` 可跳过；之后用 `/skill-update` 强制跟上游。安装结果仍是标准的 `~/.agents/skills` + `.skill-lock.json`，其他 agent 可以继续用 `npx skills`。
 
 装好后直接输入 `/` 选择命令，例如 `/git-message 修复登录超时`、`/git-commit-push`、`/handoff`、`/cleanup`（不带参数时先给编号选项）。
 
@@ -52,6 +52,7 @@ dsh plugin --profile <profile> add @morehao/dsh-commands
 每条命令注册到 `ctx.commands`。执行时 handler 校验必填输入，构造一条 user 消息经 `invocation.agent.followup()` 注入当前会话，由 agent 加载对应 skill、按对应分支执行——交互确认步骤与自然语言触发完全一致。`COMMANDS` 表自包含，不读取任何仓库文件。
 
 - 编辑技能内容（`$DSH_HOME/skills/...`）**无需重启**，下次执行即生效。
+- 本地执行型命令（`/skill-*`）不走 agent：有变更时通过 `ctx.userQuestions` 确认，执行过程走后台作业，回执首行给结论；`--yes` 跳过确认。
 - 修改插件源码（含 `COMMANDS` 表）需重启 dsh web；只有以 `link:` 方式接入时才改源码即生效，npm 版是拷贝。
 - 命令描述直接写中文：dsh 目前不向第三方提供描述文本的 i18n 钩子。
 

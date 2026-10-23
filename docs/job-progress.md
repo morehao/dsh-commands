@@ -6,18 +6,37 @@
 
 | 面 | 内容 |
 |---|---|
-| 会话头部的作业行 | 实时阶段文案：`检查依赖技能 → 安装 git-kit → 链入 dsh → 校验契约` |
+| 会话头部的作业行 | 实时阶段文案：`检查依赖技能 → 检查上游 → 安装/更新 → 链入 dsh → 校验契约`；结算后保留最后一条 `完成：<结论>` |
 | 展开的面板 | 阶段流水（`log` 通道）+ `skills` CLI 的**流式输出**（去 ANSI 的纯文本，下载/进度/Done 都在），保留 256 KB，结算后留 16 KB |
 | 行上的停止控件 | 两击停止：先 SIGTERM 再 SIGKILL 子进程，命令卡片结算为「已停止」 |
-| 命令卡片 | 结构化回执（逐技能结论 + 耗时）+ 一行「过程：作业 `skill-init-…`」；无作业时为「过程：未创建后台任务（短因）」 |
+| 命令卡片 | **首行是结论**（`✓/✅/⚠` + 变化 + 耗时 + `· 后台作业`），第二行才是「过程：作业 …」；明细在后面，点击展开。无作业时为「过程：未创建后台任务（短因）」 |
 
 阶段文案同时写进作业输出（`log` 通道，只给观察者）：即使本次一步实事没干，展开面板也有可读的执行流水，而不是空白。
+
+## 执行前确认
+
+有可执行变更（需要安装/替换软链，或缓存过期需要联网检查）时，handler 会在建作业之前用 `ctx.userQuestions` 问一次：
+
+```
+确认技能操作
+  执行上述技能维护操作，继续执行？
+  将安装/修复：disk-cleanup
+  其中 handoff 是真实目录/文件：只会跳过链入、不会删除；来源仍会安装到 canonical
+  来源：morehao/ai-kit
+  [继续执行] [取消]
+```
+
+- 取消 → 回执 `已取消 /skill-init，未做任何变更。`，不建作业。
+- `--yes` → 完全跳过确认，适合自动化。
+- 真实目录/文件会跳过链入、不会删除，但来源仍会装到 canonical，所以同样会问；确认卡会说明这一点。
+- 没有 `userQuestions`、没有活 agent、或命令被委派时**不阻塞**：直接执行，回执末尾补「确认：当前会话不支持交互确认，已直接执行。」
+- `/skill-update` 是用户显式要求更新，不弹确认。
 
 ## 确认最新 / 无事可做时不建作业
 
 `/skill-init`、`/skill-install`、`/skill-update` 会先判定「有没有需要装/修的技能」：
 
-- 缓存 TTL 内且 lock 的 `skillFolderHash` 与缓存 git tree hash 一致 → 内容确实最新，不建作业，回执首行 `✓ 已是最新：…`；
+- 缓存 TTL 内且 lock 的 `skillFolderHash` 与缓存 git tree hash 一致 → 内容确实最新，不建作业，回执首行 `✓ 已是最新 · …`；
 - TTL 过期或无缓存 → 建作业 fetch 上游；hash 没变就只出「已是最新」，不重复执行 `skills add`；
 - 已安装但 TTL 过期时仍会**检查**，不会因为「已托管」就永久跳过；检查失败但技能已托管时回执「已安装；上游检查失败」，不把环境判失败。
 
@@ -27,13 +46,16 @@
 
 | 场景 | 作业 | 回执首行 |
 |---|---|---|
-| `/skill-init`，已托管且 TTL 内 hash 一致 | 不建 | `✓ 已是最新：git-kit、handoff、disk-cleanup · 0.7s` |
-| `/skill-init`，已托管但 TTL 过期（fetch 后无变化） | 建 | `✓ 已是最新：git-kit、handoff、disk-cleanup · 4.5s · 缓存 c570a7b` |
-| `/skill-init`，需要装/换软链（首次 clone） | 建 | `技能依赖检查 · git-kit、handoff、disk-cleanup · 8.0s · 缓存 c570a7b` |
-| `/skill-init`，需要装/换软链（已缓存） | 建 | `技能依赖检查 · git-kit、handoff、disk-cleanup · 1.0s · 缓存 c570a7b` |
-| `/skill-install <来源> <技能名>`，TTL 内 hash 一致 | 不建 | `✓ 已是最新：…（缓存 TTL 内且与 lock 一致）· 0.7s` |
-| `/skill-install <来源> <技能名>`，TTL 过期且上游有变化 | 建 | `技能安装 · 来源 <来源> · … · 2s · 缓存 …` |
-| `/skill-install <来源>`，不指定技能名 / 有新装 | 建 | `技能安装 · 来源 <来源> · … · 1–3s · 缓存 c570a7b` |
+| `/skill-init`，已托管且 TTL 内 hash 一致 | 不建 | `✓ 已是最新 · 0.7s` |
+| `/skill-init`，已托管但 TTL 过期（fetch 后无变化） | 建 | `✓ 已是最新 · 4.5s` |
+| `/skill-init`，需要装/换软链（首次 clone） | 建（执行前确认） | `✅ 已完成：3 项变更 · 8.0s · 后台作业` |
+| `/skill-init`，需要装/换软链（已缓存） | 建（执行前确认） | `✅ 已完成：1 项变更 · 1.0s · 后台作业` |
+| `/skill-init`，真实目录遮蔽 | 建（仍会确认：来源会装 canonical，但链入会被拒绝） | `⚠ 已完成，但有 1 项需处理 · 0.5s` |
+| `/skill-install <来源> <技能名>`，TTL 内 hash 一致 | 不建 | `✓ 已是最新 · 0.7s` |
+| `/skill-install <来源> <技能名>`，TTL 过期且上游有变化 | 建（执行前确认） | `✅ 已安装：1 个技能 · 2s · 后台作业` |
+| `/skill-install <来源>`，不指定技能名 / 有新装 | 建（装全部前确认） | `✅ 已安装：7 个技能 · 1–3s · 后台作业` |
+
+第二行固定是「过程：作业 …」/「未创建后台任务（短因）」/「未启用后台任务（原因）」；技能/来源/缓存明细从第三行开始。首行保持短，是为了折叠状态下也能看到结论和 `· 后台作业`。
 
 网络不通时是例外：首次 clone 前的 `git ls-remote` 预检默认 8s 内失败，命令卡片直接出「连不上技能来源 …」并给代理/镜像提示，不需要等 `clone`。网络正常时，首次 clone 约 8s；之后从本地缓存安装约 1–2s；`/skill-update` 强制 fetch 约 4–6s（随网络变化）。这段时间卡片仍显示「执行中…」，阶段文案与流式输出在作业面板里。
 
@@ -43,14 +65,22 @@
 
 反过来若改成「订阅结算事件」收尾，就会走通知路径、可能白开一轮，所以代码里固定用 `wait` 循环。
 
+## 完成提示的边界
+
+`run*` 在返回前写一条 `完成：<结论>` 的 progress，所以作业结算后，作业行仍保留最终结论；命令卡片也会在结算时出现首行结论。但因为 handler 自己 `wait`（`awaited=true`），`dsh-tool-jobs` **不会**再投一条完成通知：用户切到别的会话/页面时收不到「装好了」的提醒，回来才看到结果。
+
+这是有意的零 token 取舍。若以后要补外部完成提醒，只有三条路：不 `wait` 让作业通知走 `dsh-tool-jobs`（可能唤醒模型回合）、加客户端 toast、或完成后 `agent.followup()` 让模型汇报。三者的代价都高于当前方案，先不做。
+
 ## 降级
 
-`ctx.jobs` 缺失（headless 组合）、没控制器（未加载 `dsh-tool-jobs`）、并发上限、或当前会话没有活 agent 时，命令自动退回原来的「转圈 → 一次性回执」，回执末尾会写「过程：未启用后台任务（原因）」。
+`ctx.jobs` 缺失（headless 组合）、没控制器（未加载 `dsh-tool-jobs`）、并发上限、或当前会话没有活 agent 时，命令自动退回原来的「转圈 → 一次性回执」：首行仍带结论，并补 `· 未启用后台作业`；`过程：` 行会写「未启用后台任务（原因）」。
+
+确认交互也会独立降级：`ctx.userQuestions` 缺失、无活 agent 或命令被委派时直接执行，回执末尾补「确认：当前会话不支持交互确认，已直接执行。」
 
 `apply` 不把 `jobs` 写进 `inject`，所以没有 jobs 的组合照常加载。
 
 ## 实现约束
 
-- `lib/skill-setup.js` 的 `planSkillOperation()` 与三个 `run*` 只认 `reporter.progress` / `reporter.write`，不直接接触 `ctx.jobs`；这层适配全在 `lib/job-progress.js` 的 `runInJob` / `NO_REPORTER`。来源缓存与 lock 回写在 `lib/skill-cache.js`；输出清洗与子进程分别在 `lib/text.js` / `lib/proc.js`。
+- `lib/skill-setup.js` 的 `planSkillOperation()` 与三个 `run*` 只认 `reporter.progress` / `reporter.write`，不直接接触 `ctx.jobs`；这层适配全在 `lib/job-progress.js` 的 `runInJob` / `NO_REPORTER`。来源缓存与 lock 回写在 `lib/skill-cache.js`；输出清洗与子进程分别在 `lib/text.js` / `lib/proc.js`；执行前确认在 `lib/confirm.js`。
 - 失败回执会剥掉 ANSI、框线与 CLI 的 ASCII logo（`lib/text.js` 的 `tail()`），完整输出留在作业面板里；只保留最后 15 行、单行 240 字符、整段 1200 字符，避免 clack 的进度重绘把命令卡片撑到几十 KB。
 - 作业输出先去 ANSI 再旁路：面板是纯文本终端，不去色会把 `[38;5;250m` 之类转义码原样显示。
