@@ -1032,81 +1032,99 @@ try {
 		unknownClient.text,
 	);
 
-	// ---- 13) 完成通知：结论必须写进会话（空会话里命令行没有落点） ------------
-	// 平台事实：命令回执只落在对话流上，新建会话里跑命令看不到任何东西。
-	// 所以本地命令用 agent.inject()（不唤醒模型）把结论追加成一行 notice。
-	const notices = [];
-	const noticeAgent = {
-		session: { id: "session-notice" },
+	// ---- 13) 执行报告：默认唤醒一轮让 agent 复核（blank 会话只由 turn/start 解除） ----
+	const woken = [];
+	const injected = [];
+	const reviewAgent = {
+		session: { id: "session-review" },
+		followup(message) {
+			woken.push(message);
+		},
 		inject(message) {
-			notices.push(message);
+			injected.push(message);
 		}
 	};
-	const noticeHandler = mountWith({ graph: () => ({ entries: [{ id: "@morehao/dsh-commands" }] }) });
-	const noticeResult = await noticeHandler.handler({
+	const reviewHandler = mountWith({ graph: () => ({ entries: [{ id: "@morehao/dsh-commands" }] }) });
+	const reviewResult = await reviewHandler.handler({
 		rawInput: "",
 		signal: undefined,
-		agent: noticeAgent
+		agent: reviewAgent
 	});
-	const notice = notices.at(-1);
-	const noticeText = String(notice?.content?.[0]?.text ?? "");
+	const report = woken.at(-1);
+	const reportText = String(report?.content?.[0]?.text ?? "");
 	check(
-		notices.length === 1 &&
-			notice.role === "user" &&
-			notice.source?.kind === "dsh-commands" &&
-			notice.source?.form === "notice",
-		"通知：结论以 notice 消息注入会话（不唤醒模型）",
-		JSON.stringify(notice?.source ?? null),
+		woken.length === 1 && injected.length === 0,
+		"报告：默认 followup 唤醒一轮（不是 inject）",
+		JSON.stringify({ woken: woken.length, injected: injected.length }),
 	);
 	check(
-		noticeText.startsWith("/skill-init：") && noticeText.includes("✓ 无变更"),
-		"通知：正文带命令名与首行结论",
-		noticeText,
+		report.role === "user" && report.source?.kind === "dsh-commands" && report.source?.form === "notice",
+		"报告：以 notice 形式呈现，不会变成一张大用户气泡",
+		JSON.stringify(report?.source ?? null),
 	);
 	check(
-		String(notice?.source?.summary ?? "").includes("/skill-init 完成"),
-		"通知：summary 说明完成还是失败",
-		String(notice?.source?.summary ?? ""),
+		reportText.startsWith("/skill-init：") && reportText.includes("无变更"),
+		"报告：正文带命令名与回执结论",
+		reportText.split("\n").slice(0, 2).join(" / "),
 	);
 	check(
-		noticeResult.text.startsWith("✓ 无变更") && notices.length === 1,
-		"通知：注入不影响命令回执本身",
-		noticeResult.text.split("\n")[0],
+		reportText.includes("不需要你再执行或重跑") && reportText.includes("不要调用任何工具"),
+		"报告：附复核指令并约束住模型（不跑命令、不调工具）",
+		reportText.slice(-160),
+	);
+	check(
+		String(report?.source?.summary ?? "").includes("/skill-init 完成"),
+		"报告：summary 说明完成还是失败",
+		String(report?.source?.summary ?? ""),
+	);
+	check(
+		reviewResult.text.startsWith("✓ 无变更") && woken.length === 1,
+		"报告：唤醒不影响命令回执本身",
+		reviewResult.text.split("\n")[0],
 	);
 
-	// 用户取消也要写一行，否则空会话里「什么都没发生」和「你取消了」分不清。
-	notices.length = 0;
+	// 取消：只 inject 记录一行，不打扰模型。
+	woken.length = 0;
+	injected.length = 0;
 	await rm(linkPath("git-kit"), { force: true });
 	const cancelHandler = mountWith({ graph: () => ({ entries: [{ id: "@morehao/dsh-commands" }] }) }, {
 		async ask(request) {
 			return { answers: [{ id: request.questions[0].id, selected: ["取消"] }] };
 		}
 	});
-	const cancelResult = await cancelHandler.handler({
-		rawInput: "",
-		signal: undefined,
-		agent: noticeAgent
-	});
-	check(cancelResult.text.includes("已取消 /skill-init"), "通知：取消时回执不变", cancelResult.text);
+	const cancelResult = await cancelHandler.handler({ rawInput: "", signal: undefined, agent: reviewAgent });
+	check(cancelResult.text.includes("已取消 /skill-init"), "报告：取消时回执不变", cancelResult.text);
 	check(
-		String(notices.at(-1)?.content?.[0]?.text ?? "").includes("/skill-init：已取消"),
-		"通知：取消也写一行 notice",
-		JSON.stringify(notices.at(-1)?.content?.[0]?.text ?? ""),
+		woken.length === 0 &&
+			injected.length === 1 &&
+			String(injected.at(-1)?.content?.[0]?.text ?? "").includes("已取消"),
+		"报告：取消只记录一行，不唤醒模型",
+		JSON.stringify({ woken: woken.length, injected: injected.length }),
 	);
 
-	// 非法参数（错误出口）同样要落一行。
-	notices.length = 0;
+	// 非法参数（错误出口）同样要交给会话复核。
+	woken.length = 0;
+	injected.length = 0;
 	const badArgHandler = mountWith({ graph: () => ({ entries: [{ id: "@morehao/dsh-commands" }] }) });
-	const badArgResult = await badArgHandler.handler({
-		rawInput: "--bogus",
-		signal: undefined,
-		agent: noticeAgent
-	});
-	check(badArgResult.kind === "error", "通知：非法参数按错误返回", badArgResult.text.split("\n")[0]);
+	const badArgResult = await badArgHandler.handler({ rawInput: "--bogus", signal: undefined, agent: reviewAgent });
+	check(badArgResult.kind === "error", "报告：非法参数按错误返回", badArgResult.text.split("\n")[0]);
 	check(
-		String(notices.at(-1)?.source?.summary ?? "").includes("/skill-init 失败"),
-		"通知：错误出口也写一行（summary 标失败）",
-		String(notices.at(-1)?.source?.summary ?? ""),
+		woken.length === 1 && String(woken.at(-1)?.source?.summary ?? "").includes("/skill-init 失败"),
+		"报告：错误出口也交给会话（summary 标失败）",
+		String(woken.at(-1)?.source?.summary ?? ""),
+	);
+
+	// DSH_COMMANDS_SKILL_NOTIFY=notice 时降级为零 token 记录。
+	woken.length = 0;
+	injected.length = 0;
+	process.env.DSH_COMMANDS_SKILL_NOTIFY = "notice";
+	const quietHandler = mountWith({ graph: () => ({ entries: [{ id: "@morehao/dsh-commands" }] }) });
+	await quietHandler.handler({ rawInput: "", signal: undefined, agent: reviewAgent });
+	delete process.env.DSH_COMMANDS_SKILL_NOTIFY;
+	check(
+		woken.length === 0 && injected.length === 1,
+		"报告：DSH_COMMANDS_SKILL_NOTIFY=notice 时只记录不唤醒",
+		JSON.stringify({ woken: woken.length, injected: injected.length }),
 	);
 } finally {
 	await rm(root, { recursive: true, force: true });

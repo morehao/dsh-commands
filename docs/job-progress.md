@@ -91,20 +91,34 @@
 
 如果 client half 没加载，命令卡回退 dsh 通用卡；完成仍只剩卡片，但 host 行为完全不变。
 
-### 结论写进会话（notice 行）
+### 结论交给 agent 复核（每次运行都会发一条消息）
 
-命令卡只活在**对话流**里，而 dsh 的空会话渲染的是空状态 —— 新建会话后直接跑命令，命令确实执行了，用户却看不到任何东西（实测复现：日志里有 `command/run` + `command/done`，页面 DOM 里 `[data-dsh-commands-card]` 为 0）。
+命令卡只活在**对话流**里，而 dsh 的会话 `blank` 状态**只由 `turn/start` 解除**：
 
-所以本地命令的每条出口（完成 / 取消 / 失败 / 已停止）都会用 `agent.inject()` 往会话里追加一行 `form: "notice"` 的消息：
+```js
+// dsh-api-session-controller：blank 投影
+const blank = state.blank && event.type !== "turn/start";
+// dsh-client-ui-conversation：blank → 渲染空状态，对话流不渲染
+return conversation.activeTargets.size > 0 || (!session.blank && !session.awaitingFirstTurn) || session.running
+  ? "active" : session.promptAttempted ? "engaging" : "blank";
+```
+
+命令事件（`command/run`、`job/*`、`command/done`）和 `inject()` 的 notice 都不产生 `turn/start`。所以在新建会话里跑 `/skill-init`，**不唤醒一轮就必然什么都看不到**（实测：日志完整、页面无卡、无命令行）。
+
+因此每条出口都会把回执交给会话，默认 **`followup()` 唤醒一轮让 agent 复核**：
 
 ```
-/skill-init：✓ 无变更 · 1.4s · 后台作业
+/skill-init：✓ 无变更 · 1.4s · 后台作业 / 过程：作业 … / 技能：… / …
+以上是命令本体刚跑完的确定性结果，不需要你再执行或重跑。
+请复核：① 结论是否正常；② 有没有需要用户处理的事项…
+只输出 2–3 行中文结论；不要调用任何工具，不要修改文件。
 ```
 
-- **不用 `followup()`**：那会唤醒模型跑一轮（花 token、回一段没人要的话）。`inject()` 只追加模型可见上下文、不唤醒任何回合 —— 与 `dsh-tool-jobs` 投递后台任务完成通知同一做法（`dsh-tool-jobs/lib/index.js` 里 `owner.inject(createUserMessage({ source: { kind, form: "notice" } }))`）。
-- 代价：下一次模型回合会读到这一行（一句话、几十 token），换来结果可见且可回溯。
-- `agent.inject` 不存在时静默跳过，命令行为不变。
-- 回执正文不整段灌进去：notice 只带首行结论，客户端卡没加载时再附一行原因。
+- 命令本体仍然是 handler 里的确定性执行（不交给模型跑）；agent 只负责「读结论 → 回报」，顺带指出真实目录遮蔽、上游可更新等需要人处理的事。
+- 消息用 `form: "notice"`：既起一轮，又在对话流里渲染成一行 notice（`ContextInjectionRow`，summary 是折叠态那行），不会变成一张大用户气泡。
+- 报告上限 1400 字符（超出截断），避免把整段回执灌进上下文。
+- **取消**只 `inject()` 记一行，不唤醒模型（用户刚点了取消，没必要再花一次调用）；`DSH_COMMANDS_SKILL_NOTIFY=notice` 可整体降级为「只记录不唤醒」。
+- `followup`/`inject` 都不可用时静默跳过，命令回执不变。
 
 ### 排障：自绘命令卡根本没出现
 
