@@ -66,13 +66,14 @@ dsh plugin --profile <profile> add @morehao/dsh-commands
 ## 开发
 
 ```bash
-npm test                                # 两个冒烟（stub + 本地 git，不联网）
+npm run check                           # 本地全量：语法扫描 / 命名 / 打包 / Release 投影 + 三个冒烟
+npm test                                # 三个冒烟（stub + 本地 git，不联网）
 node scripts/check-skill-contract.mjs   # 命令 → 技能分支的跨仓契约（需技能已安装）
 node scripts/smoke-skill-setup.mjs      # 技能自举 + 过程可见（stub，不联网）
 node scripts/smoke-skill-cache.mjs      # 来源缓存 / TTL / lock 回写（本地 git，不联网）
 ```
 
-CI 在 PR 上校验脚本语法、三处命名一致、打包白名单与技能自举/缓存冒烟。扩展命令、测试细节与命名约定见 [开发与测试](./docs/development.md)。
+CI 在 PR 上校验发布脚本语法、全量插件语法（扫 `lib/`、`scripts/` 与 locale JSON）、三处命名一致、打包白名单、Release 正文投影与三个离线冒烟（`npm test`），用的就是上面这几个 npm script。扩展命令、测试细节与命名约定见 [开发与测试](./docs/development.md)。
 
 ## 发布
 

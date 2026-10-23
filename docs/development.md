@@ -47,10 +47,13 @@ CI 默认不跑契约校验——它依赖另一仓的技能目录。
 ## 冒烟测试
 
 ```bash
-npm test                             # 等价于下面两个冒烟
+npm test                             # 等价于下面三个冒烟（CI 也只调这一个入口）
+node scripts/smoke-client-bundle.mjs # client half 接线：命令卡 / 完成提示 / 未读点注册到约定槽
 node scripts/smoke-skill-setup.mjs   # stub CLI：安装/软链/并发/超时/作业
 node scripts/smoke-skill-cache.mjs   # 本地 git 源：cache/TTL/refresh/离线/lock 回写
 ```
+
+`smoke-client-bundle` 加载 `lib/client.js` 的预打包 bundle，断言 client half 把命令卡、应用级完成提示、会话行未读点注册到约定槽，并核对 locale 与 `inject()` 形状（不启动 dsh、不联网）。
 
 `smoke-skill-setup` 用 `DSH_COMMANDS_SKILL_CLI_OVERRIDE` 指向一个 stub 顶替 `skills` CLI，在临时 HOME 里覆盖：
 
@@ -66,13 +69,16 @@ node scripts/smoke-skill-cache.mjs   # 本地 git 源：cache/TTL/refresh/离线
 
 ## CI
 
-`.github/workflows/check.yml` 在 PR 上机械校验：
+`.github/workflows/check.yml` 在 PR 上机械校验，每一步都调同一个 npm script（CI 不另列文件清单）：
 
-- 发布脚本语法（`bash -n scripts/ci-publish.sh`）；
-- 插件语法（`node --check lib/*.js` 与冒烟脚本）；
-- 包名 / 模块标识符 / 插件名三处一致（`scripts/check-naming.mjs`）；
-- 打包内容白名单（`scripts/check-pack.mjs`，防止 `.dsh/` 草稿、`node_modules`、`*.tgz` 混进 npm tarball）；
-- 技能自举冒烟（`scripts/smoke-skill-setup.mjs`）与缓存冒烟（`scripts/smoke-skill-cache.mjs`）。
+- 发布脚本语法：`bash -n scripts/ci-publish.sh`；
+- 插件语法：`npm run check:syntax`（扫 `lib/`、`scripts/` 全量 + `locale/*.json`；新增文件自动纳入）；
+- Release 正文投影：`npm run check:release-notes`（注记 tag → Release body）；
+- 包名 / 模块标识符 / 插件名三处一致：`npm run check:naming`；
+- 打包内容白名单：`npm run check:pack`（防止 `.dsh/` 草稿、`node_modules`、`*.tgz` 混进 npm tarball）；
+- 三个离线冒烟：`npm test`（client half 接线 + 技能自举 + 技能缓存）。
+
+本地 `npm run check` = 上面除 `bash -n` 外的全部（`check:contract` 不在其中，它依赖另一仓的技能目录）。
 
 ## 命名约定
 

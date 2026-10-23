@@ -43,13 +43,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      # 不设 registry-url：setup-node v7 移除了 dummy NODE_AUTH_TOKEN 的兜底，发布凭据一律走 OIDC；
+      # registry 由 scripts/ci-publish.sh 显式 `--registry https://registry.npmjs.org` 指定，
+      # 免得 .npmrc 里的 ${NODE_AUTH_TOKEN} 占位与 OIDC 抢凭据。
       - name: Setup Node.js
         uses: actions/setup-node@v7   # v5 起跑在 node24；v7 不再导出占位 NODE_AUTH_TOKEN，更契合 OIDC
         with:
           node-version: '22'
-          registry-url: https://registry.npmjs.org
-          # 发布链路禁用依赖缓存：setup-node v6 起会自动开 npm 缓存，
-          # 而缓存被污染可能把 OIDC 令牌暴露给攻击者代码（官方 trusted publishing 建议）。
+          # 发布链路禁用依赖缓存：缓存被污染可能把 OIDC 令牌暴露给攻击者代码（官方 trusted publishing 建议）。
           package-manager-cache: false
 
       - name: Upgrade npm for trusted publishing

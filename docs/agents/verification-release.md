@@ -7,37 +7,38 @@
 
 | 改动 | 必跑 | 说明 |
 |---|---|---|
-| `lib/*.js` | `npm run check` + `node --check` | `npm run check` 先 `node --check lib/client.js`，再命名 + 打包 + 两个技能冒烟；CI 另对全部 `lib/*.js` 做语法检查 |
-| `COMMANDS` / `branch` | 上面 + `node scripts/check-skill-contract.mjs` | 契约校验依赖技能已安装 |
-| `package.json` / `exports` / `files` / 命名 | `node scripts/check-naming.mjs` + `node scripts/check-pack.mjs` | CI 也跑；`dsh.client` 与 `./client` 必须在 `exports` 中，`lib/client.js` 必须入包 |
-| `scripts/*.mjs` | `node --check <file>` + 对应冒烟 | `release-notes` 有自己的冒烟 |
-| CI / release workflow | 本地跑对应脚本；`bash -n scripts/ci-publish.sh` | 不要只改 YAML 不验证 |
+| `lib/*.js` | `npm run check` | `check` = `check:syntax`（扫 `lib/`、`scripts/` 与 locale JSON）+ 命名 + 打包 + Release 投影 + `npm test`（三个冒烟）；CI 跑的就是同一串 npm script |
+| `COMMANDS` / `branch` | 上面 + `npm run check:contract` | 契约校验依赖技能已安装，不在 CI |
+| `package.json` / `exports` / `files` / 命名 | `npm run check:naming` + `npm run check:pack` | CI 也跑；`dsh.client` 与 `./client` 必须在 `exports` 中，`lib/client.js` 必须入包 |
+| `scripts/*.mjs` | `npm run check:syntax` + 对应冒烟 | 语法已由目录扫描覆盖，不用逐个 `node --check`；`release-notes` 有自己的冒烟 |
+| CI / release workflow | 本地跑对应 npm script；`bash -n scripts/ci-publish.sh` | 不要只改 YAML 不验证 |
 | 纯文档 | 链接与事实核对 | 不跑代码检查 |
 
-`npm test` 只跑两个技能冒烟，不等于全量检查；交付前优先 `npm run check`。
+`npm test` 只跑三个冒烟（client half 接线 + 技能自举 + 技能缓存），不等于全量检查；交付前优先 `npm run check`。
 
 ## 2. CI 实际跑什么（check.yml）
 
 PR 与 push `main` 触发，机械校验：
 
 1. `bash -n scripts/ci-publish.sh`
-2. `node --check` 所有 `lib/*.js`（含 `lib/client.js`）、两个技能冒烟脚本、`smoke-client-bundle.mjs`、`release-notes.mjs`
-3. `node scripts/smoke-release-notes.mjs`（注记 tag → Release body 投影）
-4. `node scripts/check-naming.mjs`
-5. `node scripts/check-pack.mjs`
-6. `node scripts/smoke-client-bundle.mjs`（client half 槽注册 / locale / inject）
-7. `node scripts/smoke-skill-setup.mjs`
-8. `node scripts/smoke-skill-cache.mjs`
+2. `npm run check:syntax`（`scripts/check-syntax.mjs`：扫 `lib/`、`scripts/` 全量与 `locale/*.json`，新增文件自动纳入）
+3. `npm run check:release-notes`（注记 tag → Release body 投影）
+4. `npm run check:naming`
+5. `npm run check:pack`
+6. `npm test`（三个离线冒烟：client half 槽注册 / locale / inject、技能自举、技能缓存）
+
+CI 的每一步都调 `package.json` 里的 npm script，不在 YAML 里另列文件清单——CI 与本地跑的是同一串脚本。
 
 注意：
 
 - **跨仓契约校验不在 CI**（依赖 agent-skills 技能目录），需要本地跑。
-- `npm run check` 含 client 语法/接线冒烟、命名、打包与两个技能冒烟；不含 `release-notes` 冒烟和其余 `lib/*.js` 的 `node --check`，本地全量按矩阵补。
+- `npm run check` 与 CI 覆盖同一组检查，只差 `bash -n`（shell 语法）与契约校验；新增 `lib/*.js` / `scripts/*.mjs` 不需要改 workflow。
 - CI 不装依赖、不联网；冒烟用 stub / 本地 git。
 - **两个 workflow 的镜像与 action 版本是显式钉住的**，别顺手改回浮动值：
   - `runs-on: ubuntu-24.04`（不是 `ubuntu-latest`）：`ubuntu-latest` 自 2026-10-19 起分批迁到 26.04（11-19 完成），校验/发布结果不该随镜像漂移。要试新镜像就单独改成 `ubuntu-26.04` 跑一轮再切。
   - `actions/checkout@v7` / `actions/setup-node@v7`：v4 跑在 node20 上，GitHub 已提示弃用并强制在 node24 上运行；v5 起改用 node24，v7 是当前主版本。
-  - `release.yml` 的 `setup-node` 额外设 `package-manager-cache: false`：v6 起会自动开 npm 缓存，发布链路不该让缓存接触 OIDC 令牌。
+  - 两个 job 的 `setup-node` 都显式 `package-manager-cache: false`：v6 起只要 `package.json` 有 `packageManager` 字段就会自动开 npm 缓存，发布链路尤其不该让缓存接触 OIDC 令牌。
+  - `release.yml` **不设 `registry-url`**：v7 移除了 dummy `NODE_AUTH_TOKEN` 兜底，registry 由 `ci-publish.sh` 的 `--registry` 指定，避免 `.npmrc` 的 `${NODE_AUTH_TOKEN}` 占位与 OIDC 抢凭据（姊妹仓 dsh-skills-console 同款取舍）。
 
 ## 3. 打包与命名
 

@@ -28,6 +28,7 @@
 **仓库 / workflow 前置**
 - [ ] 仓库存在且为 GitHub（GitHub-hosted runner），workflow 文件在 `.github/workflows/<文件名>.yml`。
 - [ ] 发布 job 有 `permissions: id-token: write`，且发布命令里**没有** `NODE_AUTH_TOKEN`（会覆盖 OIDC）。
+- [ ] `setup-node` **不设** `registry-url`（v7 移除了 dummy `NODE_AUTH_TOKEN` 兜底，`.npmrc` 里的 `${NODE_AUTH_TOKEN}` 占位会和 OIDC 抢凭据），registry 由发布脚本的 `--registry` 显式指定；并显式 `package-manager-cache: false`。
 - [ ] `scripts/` 里的发布脚本可执行、`bash -n` 通过；发布用**单一命令**（如 `bash ./scripts/ci-publish.sh`）。
 
 **本仓库特有的命名约定（改包名时）**
