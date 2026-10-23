@@ -1,6 +1,6 @@
 # 技能运行时（Agent）
 
-> 读这篇的时机：改 `lib/skill-setup.js`、`lib/skill-cache.js`、`lib/skill-paths.js`、`lib/proc.js`、`lib/text.js`、`lib/job-progress.js`，或排查 `/skill-init` / `/skill-install` / `/skill-update`。
+> 读这篇的时机：改 `lib/skill-setup.js`、`lib/skill-cache.js`、`lib/skill-paths.js`、`lib/proc.js`、`lib/text.js`、`lib/job-progress.js`，或排查 `/skill-init`（含 `--update`）。
 > 完整背景见 [技能自举](../skill-setup.md) 与 [过程可见](../job-progress.md)。
 
 ## 1. 模块边界
@@ -13,20 +13,20 @@
 | `lib/proc.js` | 子进程 timeout / abort / 输出上限 | 不经 shell 拼命令 |
 | `lib/text.js` | ANSI / 框线 / spinner 清洗、tail 截断 | 不加业务语义 |
 | `lib/job-progress.js` | 把 work 挂到 `ctx.jobs`、`wait` 收尾、降级 | 不含技能逻辑 |
-| `lib/confirm.js` | 执行前的 `ctx.userQuestions` 确认、来源询问、`--yes`/不可用降级 | 不执行安装、不碰 `ctx.jobs` |
+| `lib/confirm.js` | 执行前的 `ctx.userQuestions` 确认、按 plan 生成选项、`--yes`/不可用降级 | 不执行安装、不碰 `ctx.jobs` |
 
 ## 2. 调用链
 
 本地型 handler：
 
-1. 解析 `--yes`；`/skill-install` 无来源时先通过 `ctx.userQuestions` 问来源（无法问就保留旧「缺少来源」错误）。
-2. `def.plan(COMMANDS, input, options)` → `planSkillOperation()`；纯本地，不联网、不写盘。
-3. 有副作用且未 `--yes` 时 `confirmSkillOperation()`：把变更/跳过项摊给用户，按命令给出「处理全部 / 只补缺失 / 取消」或「全部安装 / 只装缺少的 / 取消」，返回 `choice`（`all` / `missing`）。没有 userQuestions 或没有活 agent 时**不阻塞**，直接执行并在回执补一行说明。
+1. 解析 `--yes` / `--update`；非 `--update` 时位置参数直接报用法（不再有「来源」概念）。
+2. `def.plan(COMMANDS, input, options)` → `planSkillOperation(options.update ? "skill-update" : "skill-init", …)`；纯本地，不联网、不写盘。
+3. 有副作用且未 `--yes`/`--update` 时 `confirmSkillOperation()`：把变更/跳过项摊给用户，给出「处理全部 / 只补缺失 / 取消」，返回 `choice`（`all` / `missing`）。没有 userQuestions 或没有活 agent 时**不阻塞**，直接执行并在回执补一行说明。
 4. `runInJob({ jobs, owner, kind, label: def.label(input, plan), signal, skip: plan.skipReason, work })`。
-5. `work` 里调 `def.run(...)`；`run*` 只执行 plan，不再重复 inspect / 比对 hash。
+5. `work` 里调 `def.run(...)`：init 走 `runSkillInit`，`--update` 走 `runSkillUpdate`；`run*` 只执行 plan，不再重复 inspect / 比对 hash。
 6. 结算：`run*` 首行是结论式 `✓/✅/⚠`，handler 把「过程：作业 …」放到第二行，并在有作业时给首行加 `· 后台作业` 标记；无事可做时首行仍是结论，第二行解释为什么没有作业。
 
-`plan` 只算一次是硬约束：handler 与 run 各算一遍会产生两套 skip 文案和不一致的判定。只有「`/skill-install` 无来源、先问来源」这一种情况会在拿到来源后重新 plan 一次。
+`plan` 只算一次是硬约束：handler 与 run 各算一遍会产生两套 skip 文案和不一致的判定。
 
 ## 3. 必须保持的不变量
 
@@ -35,9 +35,10 @@
 - **canonical 固定 `~/.agents/skills`**：`skills` CLI 的 universal 全局落点硬编码为 `homedir()/.agents/skills`；不要改成 `$DSH_AGENTS_HOME`，否则 CLI 仍写 canonical，插件会找不到。
 - **lock 来源回写**：`skills add <本地缓存>` 会把 lock 写成 local；安装后必须回写 `source` / `sourceType` / `sourceUrl` / `skillPath` / `skillFolderHash`，否则其他 agent 的 `npx skills update` 认不出远端。
 - **单一写入锁**：同一 `DSH_HOME` + canonical 目录同时只允许一个技能写操作；第二次直接拒绝，不并行 clone。
-- **`-a universal` 必须显式给**；不要用 `skills update`（内部 spawn 可能装到所有 agent 目录），`/skill-update` 也用 `add`。
+- **`-a universal` 必须显式给**；不要用 `skills update`（内部 spawn 可能装到所有 agent 目录），`--update` 也用 `add`。
 - **确认是可选增强**：只有 `plan` 判定有变更（安装了/需要安装、缓存过期需要联网检查）时才问；真实目录/文件虽然不会替换链接，但来源仍会装进 canonical，所以同样会问。`--yes` 完全跳过；`ctx.userQuestions`/活 agent 缺失时降级执行，不能把命令卡死。只有 `ASK_CANCELLED` / `ASK_ABORTED` 才算用户取消。
-- **choice 只影响执行范围，不改变 plan**：`choice=missing` 时 `runSkillInit` 只处理 `state=missing`，跳过上游比对和已有条目；`runSkillInstall` 的 `onlyMissing` 只在远端缓存来源上生效（本地路径/CLI override 列不出来源，仍按原范围）。
+- **choice 只影响执行范围，不改变 plan**：`choice=missing` 时 `runSkillInit` 只处理 `state=missing`，跳过上游比对和已有条目。
+- **任意来源安装不在本插件内**：dsh 扫描 canonical `~/.agents/skills`，额外技能用 `npx -y skills add <来源> --skill <名称> -g -a universal -y`，不需要软链，也不要重新引入 `/skill-install` 式的四路并集逻辑。
 
 ## 4. 缓存与 TTL
 
@@ -46,7 +47,7 @@
 - `DSH_COMMANDS_SKILL_CACHE_TTL_MS`：默认 `600000`；`0` = 每次都 fetch；`<0` = 离线，有缓存就不 fetch。
 - 缓存 git 超时由外层 `DSH_COMMANDS_SKILL_TIMEOUT_MS` 派生：clone `min(60s, max(30s, outer-30s))`；fetch `min(20s, max(5s, outer/4))`。
 - 首次 clone 前有 `git ls-remote` 连通性预检，默认 8s（`DSH_COMMANDS_SKILL_PROBE_MS`，`0` 关闭；本地路径来源不预检）。
-- 安装类命令允许旧缓存并在回执标「离线，未确认上游」；`/skill-update` 必须 fetch 成功，不拿旧缓存冒充更新。
+- 普通 init 允许旧缓存并在回执标「离线，未确认上游」；`--update` 必须 fetch 成功，不拿旧缓存冒充更新。
 
 ## 5. 环境变量（只列会改行为的）
 
@@ -86,7 +87,7 @@
 
 ## 9. 修改检查清单
 
-- [ ] `plan` 仍然只算一次；`run*` 没有重复 inspect / hash（`/skill-install` 问来源后重算除外）。
+- [ ] `plan` 仍然只算一次；`run*` 没有重复 inspect / hash。
 - [ ] 确认只在有可执行变更时出现；`--yes`、无 userQuestions、无 agent 都不会卡住命令。
 - [ ] 回执首行是 `✓/✅/⚠` 结论；「过程：作业 …」不再放在最后一行。
 - [ ] 没有新增备份目录、没有删真实目录/文件。

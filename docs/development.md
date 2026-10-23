@@ -7,13 +7,13 @@ host 没有构建步骤，源码即产物（纯 ESM）；唯一运行时依赖�
 | 路径 | 作用 |
 |---|---|
 | `lib/index.js` | 意图表 `COMMANDS` / `LOCAL_COMMANDS`、`apply()` 注册命令 |
-| `lib/skill-setup.js` | `/skill-init`、`/skill-install`、`/skill-update` 的 plan、安装、软链、校验 |
+| `lib/skill-setup.js` | `/skill-init`（含 `--update`）的 plan、安装、软链、校验 |
 | `lib/skill-paths.js` | `$DSH_HOME` / `$DSH_AGENTS_HOME` / lock 路径解析 |
 | `lib/skill-cache.js` | 来源浅克隆缓存、TTL、lock 回写 |
 | `lib/text.js` | ANSI 清洗、spinner 折叠、尾部截断 |
 | `lib/proc.js` | 子进程 timeout / abort / 输出上限 |
 | `lib/job-progress.js` | 把长任务挂到 `ctx.jobs`，作业行/面板/停止/回执 |
-| `lib/confirm.js` | 本地命令执行前的 `ctx.userQuestions` 确认、按命令生成范围选项、来源询问、`--yes` 降级 |
+| `lib/confirm.js` | `/skill-init` 执行前的 `ctx.userQuestions` 确认、按 plan 生成范围选项、`--yes` 降级 |
 | `lib/client.js` | web client half：命令状态卡、`shell.overlay` 完成提示、会话行未读点 |
 | `locale/{zh,en}.json` | 插件页标题与描述 |
 | `cordis.patch.yml` | dsh profile bundle patch（注册插件） |
@@ -29,7 +29,8 @@ host 没有构建步骤，源码即产物（纯 ESM）；唯一运行时依赖�
 - `hint` / `required` 决定输入提示与校验；`description` 原样出现在斜杠菜单，不做 i18n（原因见 [架构与原理](./architecture.md#描述文本不做-i18n有意为之)）。
 - 技能对「无参数」有专门语义时用 `noInput` 覆盖默认注入语（`/cleanup` 靠它实现「先给选项、不执行脚本」），需要用户确认的事项用 `confirm` 覆盖默认措辞。
 - 命令与 ai-kit 里 opencode 侧 `commands-opencode/git/*.md`、`commands-opencode/handoff.md`、`commands-opencode/cleanup.md` 是同一 skill 的多条入口，只声明意图、不重复逻辑。
-- 新增委托型命令后，`REQUIRED_SKILLS` 会自动带上它的技能，`/skill-init` 与 `/skill-update` 无需另改。
+- 新增委托型命令后，`REQUIRED_SKILLS` 会自动带上它的技能，`/skill-init` 与 `--update` 无需另改；委托型 handler 也会自动预检该技能是否已安装。
+- 任意来源的额外技能不进 `COMMANDS`，也不由插件安装：直接 `npx -y skills add <来源> --skill <名称> -g -a universal -y`。
 
 ## 跨仓契约
 
@@ -53,11 +54,11 @@ node scripts/smoke-skill-cache.mjs   # 本地 git 源：cache/TTL/refresh/离线
 
 `smoke-skill-setup` 用 `DSH_COMMANDS_SKILL_CLI_OVERRIDE` 指向一个 stub 顶替 `skills` CLI，在临时 HOME 里覆盖：
 
-- 「缺失 → 装 + 软链 / 已托管 → 跳过 / 非托管软链 → 替换 / 真实目录 → 拒绝覆盖 / 任意来源安装 / 更新」六条路径；
+- 「缺失 → 装 + 软链 / 已托管 → 跳过 / 非托管软链 → 替换 / 真实目录 → 拒绝覆盖 / `--update`」五条路径，以及技能缺失时委托命令的预检；
 - 全程不联网、不碰真实 `~/.dsh`，也不会产生备份目录；
 - 失败回执剥框线、ANSI 与 CLI logo，网络不可达时给代理/镜像提示；
-- 过程可见层用假 jobs 注册表断言「只启动一个作业 / kind·owner·label 透传 / 阶段文案刷新 / CLI 输出流入面板 / 结算前已 `wait`（awaited，不投通知）/ 结果带回作业视图 / 作业被停止返回 killed / 取消只 kill 不抢跑 / jobs 缺失与无控制器降级 / `apply()` 注册的 handler 端到端跑通（14 条命令、/cleanup 无参数注入「先给选项」、回执首行结论 + 第二行作业 id）」；
-- 执行前确认用假 `ctx.userQuestions` 断言「有变更才问 / 真实目录也会问（仍装 canonical）/ 取消不建作业 / 继续后正常执行 / `--yes` 跳过 / `/skill-install` 无来源可自由输入来源」，与技能冒烟一起跑，共九十余项断言。
+- 过程可见层用假 jobs 注册表断言「只启动一个作业 / kind·owner·label 透传 / 阶段文案刷新 / CLI 输出流入面板 / 结算前已 `wait`（awaited，不投通知）/ 结果带回作业视图 / 作业被停止返回 killed / 取消只 kill 不抢跑 / jobs 缺失与无控制器降级 / `apply()` 注册的 handler 端到端跑通（12 条命令、`--update`、非法位置参数、/cleanup 无参数注入「先给选项」、回执首行结论 + 第二行作业 id）」；
+- 执行前确认用假 `ctx.userQuestions` 断言「有变更才问 / 真实目录也会问（仍装 canonical）/ 取消不建作业 / 继续后正常执行 / `--yes` 跳过」，与技能冒烟一起跑，共九十余项断言。
 
 `smoke-skill-cache` 用临时 git 源验证首次 clone、TTL 命中、refresh 更新、`ttl<0` 离线、fetch 失败回退、`--json` 解析与 lock 来源/40 位 git tree hash 回写（24 项，不联网）。
 

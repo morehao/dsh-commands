@@ -13,11 +13,11 @@
 | 路径 | 作用 |
 |---|---|
 | [lib/index.js](lib/index.js) | 命令表、handler、注入消息、`apply()` |
-| [lib/skill-setup.js](lib/skill-setup.js) | `/skill-init` / `/skill-install` / `/skill-update` 的 plan、安装、软链、校验 |
+| [lib/skill-setup.js](lib/skill-setup.js) | `/skill-init`（含 `--update`）的 plan、安装、软链、校验 |
 | [lib/skill-cache.js](lib/skill-cache.js) | 来源浅克隆缓存、TTL、lock 回写 |
 | [lib/skill-paths.js](lib/skill-paths.js) | `$DSH_HOME` / `$DSH_AGENTS_HOME` / canonical / lock 路径 |
 | [lib/job-progress.js](lib/job-progress.js) | 长任务挂到 `ctx.jobs`、作业行/面板/停止/降级 |
-| [lib/confirm.js](lib/confirm.js) | 本地命令执行前的 `ctx.userQuestions` 确认、按命令生成范围选项、来源询问、`--yes` 降级 |
+| [lib/confirm.js](lib/confirm.js) | `/skill-init` 执行前的 `ctx.userQuestions` 确认、按 plan 生成范围选项、`--yes` 降级 |
 | [lib/client.js](lib/client.js) | web client half：命令状态卡、应用级完成提示、会话行未读点 |
 | [lib/proc.js](lib/proc.js) / [lib/text.js](lib/text.js) | 子进程 timeout/abort/输出上限；ANSI/spinner/tail 清洗 |
 | [scripts/](scripts/) | 契约校验、命名/打包校验、离线冒烟、发布脚本 |

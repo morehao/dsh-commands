@@ -1,6 +1,6 @@
 /**
  * Client half 的离线接线冒烟：加载 `lib/client.js` 的 module-loader 外壳，用假的
- * React / slots / jobs 调 `apply()`，确认三个命令卡、完成提示、未读点都注册到了
+ * React / slots / jobs 调 `apply()`，确认 /skill-init 的命令卡、完成提示、未读点都注册到了
  * 约定的槽上，并且 locale / inject 完整。
  *
  * 不渲染组件（没有 React renderer）；视觉验证仍要在真实 dsh web 里做。
@@ -79,8 +79,8 @@ for (const key of ["card.waiting", "card.running", "card.done", "card.failed", "
 const commandviews = registrations.filter((item) => item.options.name === "conversation.chat.commandview");
 assert.deepEqual(
 	commandviews.map((item) => item.options.key).sort(),
-	["skill-init", "skill-install", "skill-update"],
-	"三个 skill 命令都要接管 commandview",
+	["skill-init"],
+	"只有 /skill-init 需要接管 commandview",
 );
 for (const item of commandviews) {
 	assert.equal(item.options.locale, "dsh-commands");

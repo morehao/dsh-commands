@@ -1,13 +1,12 @@
 #!/usr/bin/env node
-// /skill-init 与 /skill-update 的行为冒烟测试：不联网、不碰真实 HOME。
+// /skill-init（含 --update）的行为冒烟测试：不联网、不碰真实 HOME。
 //
-// 用 DSH_COMMANDS_SKILL_CLI_OVERRIDE 指向一个 stub 可执行文件来顶替 `npx skills`，覆盖六条路径：
+// 用 DSH_COMMANDS_SKILL_CLI_OVERRIDE 指向一个 stub 可执行文件来顶替 `npx skills`，覆盖五条路径：
 //   1) missing            → 安装 + 软链进 $DSH_HOME/skills
 //   2) 再跑一次（managed） → 跳过，且不再调用 CLI
 //   3) unmanaged（本地 clone 软链）→ 替换为托管软链（本地 clone 不受影响）
-//   4) /skill-update      → 幂等重装，软链仍然有效
+//   4) --update           → 强制重装，软链仍然有效
 //   5) 真实目录           → 拒绝覆盖（不删除、不备份），其余技能不受影响
-//   6) /skill-install     → 任意来源安装（显式技能名 / 装全部 / 缺参数报错），同样只替换软链
 // 另外校验：全程不产生 skills-backup/ 之类的备份目录（设计上不做备份）。
 import { mkdir, mkdtemp, readFile, readlink, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -114,7 +113,6 @@ try {
 
 	const {
 		runSkillInit,
-		runSkillInstall,
 		runSkillUpdate,
 		resolveSkillSource,
 		probeUrlForSource,
@@ -242,7 +240,7 @@ try {
 	check(existsSync(join(localClone, "SKILL.md")), "init：本地 clone 未被删除（只动了链接）");
 	check(!existsSync(join(dshHome, "skills-backup")), "init：不生成任何备份目录");
 
-	// ---- 4) /skill-update ---------------------------------------------------
+	// ---- 4) --update：强制重装 ----------------------------------------------
 	const callsBeforeUpdate = await stubCalls();
 	text = await runSkillUpdate(COMMANDS, "", {});
 	check(
@@ -278,22 +276,18 @@ try {
 	check(!existsSync(join(dshHome, "skills-backup")), "init：拒绝覆盖时同样没有备份目录");
 	check(!text.includes("✓ git-kit"), "init：不受影响的技能不被重复处理", text);
 
-	// ---- 6) /skill-install：任意来源 ---------------------------------------
-	await runSkillInstall(COMMANDS, "", {}).then(
-		() => check(false, "install：缺来源时应报错"),
-		(error) => check(String(error.message).includes("缺少来源"), "install：缺来源报错", String(error.message)),
-	);
-
-	// 连不上来源：不启动 CLI，几秒内给出可操作错误（用本机 1 端口模拟网络不通）
+	// ---- 6) 连不上来源：不启动 CLI，几秒内给出可操作错误 ---------------------
 	if (spawnSync("git", ["--version"], { stdio: "ignore" }).status === 0) {
 		const savedCli = process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE;
 		const savedProbe = process.env.DSH_COMMANDS_SKILL_PROBE_MS;
+		const savedSource = process.env.DSH_COMMANDS_SKILL_SOURCE;
 		delete process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE;
 		process.env.DSH_COMMANDS_SKILL_PROBE_MS = "2000";
+		process.env.DSH_COMMANDS_SKILL_SOURCE = "http://127.0.0.1:1/x.git";
 		let unreachableError = "";
 		const probeStartedAt = Date.now();
 		try {
-			await runSkillInstall(COMMANDS, "http://127.0.0.1:1/x.git demo-a", {});
+			await runSkillUpdate(COMMANDS, "git-kit", {});
 		} catch (error) {
 			unreachableError = String(error.message);
 		}
@@ -302,6 +296,8 @@ try {
 		else process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE = savedCli;
 		if (savedProbe === undefined) delete process.env.DSH_COMMANDS_SKILL_PROBE_MS;
 		else process.env.DSH_COMMANDS_SKILL_PROBE_MS = savedProbe;
+		if (savedSource === undefined) delete process.env.DSH_COMMANDS_SKILL_SOURCE;
+		else process.env.DSH_COMMANDS_SKILL_SOURCE = savedSource;
 		check(
 			unreachableError.includes("连不上技能来源") && unreachableError.includes("代理"),
 			"预检：明确网络不通时快速失败并给代理/镜像提示",
@@ -310,69 +306,29 @@ try {
 		check(probeElapsed < 10_000, "预检：失败发生在硬超时之前", `${probeElapsed}ms`);
 	}
 
-	const callsBeforeInstall = await stubCalls();
-	text = await runSkillInstall(COMMANDS, "acme/toolkit tech-design", {});
-	const installArgv = JSON.parse((await readFile(stubLog, "utf8")).trim().split("\n").pop());
-	check(
-		installArgv[0] === "add" && installArgv[1] === "acme/toolkit" && installArgv.includes("tech-design"),
-		"install：把来源与技能名透传给 CLI",
-		JSON.stringify(installArgv),
-	);
-	check(
-		installArgv.includes("-a") && installArgv[installArgv.indexOf("-a") + 1] === "universal",
-		"install：同样固定 -a universal",
-		JSON.stringify(installArgv),
-	);
-	check(text.includes("✓ tech-design：已安装"), "install：显式技能名被软链", text);
-	check(
-		(await readlinkOrError(linkPath("tech-design"))) === canonical("tech-design"),
-		"install：软链指向 canonical",
-	);
-	check((await stubCalls()) === callsBeforeInstall + 1, "install：只调用一次 CLI");
-	const installPlan = await planSkillOperation("skill-install", COMMANDS, "acme/toolkit tech-design");
-	const installSkip = installPlan.skipReason;
-	check(
-		typeof installSkip === "string" && installSkip.includes("托管"),
-		"install：已托管的显式技能不建作业（planSkillOperation）",
-		String(installSkip),
-	);
-
 	// 旧变量名只差一个 S：保留 fallback，避免已配置的用户升级后静默失效。
 	const savedOverride = process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE;
 	delete process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE;
 	process.env.DSH_COMMANDS_SKILL_CLI = stub;
-	const legacyPlan = await planSkillOperation("skill-install", COMMANDS, "acme/toolkit tech-design");
+	const legacyPlan = await planSkillOperation("skill-init", COMMANDS, "");
 	check(legacyPlan.freshness.cacheSource === false, "env：旧 CLI 变量名仍被识别（fallback）", JSON.stringify(legacyPlan.freshness));
 	if (savedOverride === undefined) delete process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE;
 	else process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE = savedOverride;
 	delete process.env.DSH_COMMANDS_SKILL_CLI;
 
-	// 装"全部"：CLI 未收到 --skill，靠 canonical 目录 diff 找出新技能；
-	// 同时把 demo-a 预先做成真实目录，验证 install 也拒绝覆盖真实目录。
-	await mkdir(linkPath("demo-a"), { recursive: true });
-	await writeFile(join(linkPath("demo-a"), "SKILL.md"), "---\nname: demo-a\ndescription: 手工拷入\n---\n");
-	text = await runSkillInstall(COMMANDS, "acme/bundle", {});
-	check(text.includes("✓ demo-b：已安装"), "install：未指定技能名时按目录 diff 建链", text);
-	check(text.includes("✗ demo-a") && text.includes("拒绝覆盖"), "install：真实目录同样拒绝覆盖", text);
-	check((await stat(linkPath("demo-a"))).isDirectory(), "install：真实目录原样保留");
-	check(
-		(await readlinkOrError(linkPath("demo-b"))) === canonical("demo-b"),
-		"install：diff 发现的技能也被软链",
-	);
-
-	// ---- 6b) 并发保护：第二次 Enter 不再并行克隆 ---------------------------
+	// ---- 6b) 并发保护：第二次 Enter 不再并行执行 ---------------------------
 	process.env.STUB_SLEEP_MS = "400";
-	const firstInstall = runSkillInstall(COMMANDS, "acme/slow slow-a", {});
+	const firstUpdate = runSkillUpdate(COMMANDS, "git-kit", {});
 	await new Promise((resolve) => setTimeout(resolve, 80));
 	let concurrentError = "";
 	try {
-		await runSkillInstall(COMMANDS, "acme/slow slow-a", {});
+		await runSkillUpdate(COMMANDS, "git-kit", {});
 	} catch (error) {
 		concurrentError = String(error.message);
 	}
-	check(concurrentError.includes("已有技能安装任务正在进行"), "并发：第二次安装被拒绝（不重复克隆）", concurrentError);
-	const firstInstallText = await firstInstall;
-	check(firstInstallText.includes("slow-a"), "并发：第一次安装正常完成", firstInstallText);
+	check(concurrentError.includes("已有技能更新任务正在进行"), "并发：第二次更新被拒绝（不重复克隆）", concurrentError);
+	const firstUpdateText = await firstUpdate;
+	check(firstUpdateText.includes("git-kit"), "并发：第一次更新正常完成", firstUpdateText);
 	delete process.env.STUB_SLEEP_MS;
 
 	// ---- 6c) 硬超时：错误写明"超时/强制终止"，且锁会释放 ---------------------
@@ -397,7 +353,7 @@ try {
 	text = await runSkillUpdate(COMMANDS, "git-kit", {});
 	check(text.includes("✓ git-kit：已更新到最新"), "并发/超时：失败后锁已释放，下一次仍可执行", text);
 
-	// ---- 7) 未托管/缺失时 update 只提示 -------------------------------------
+	// ---- 7) 未托管/缺失时 --update 只提示 -----------------------------------
 	text = await runSkillUpdate(COMMANDS, "", {});
 	check(
 		text.includes("不由 skills CLI 托管") || text.includes("未安装，跳过"),
@@ -583,7 +539,7 @@ try {
 	const fellBack = await runInJob({
 		jobs: noController,
 		owner: "session-1",
-		kind: "skill-update",
+		kind: "skill-init",
 		label: "y",
 		work: () => runSkillUpdate(COMMANDS, "", {}),
 	});
@@ -650,8 +606,13 @@ try {
 		},
 	});
 	check(
-		registered.size === 14 && registered.has("skill-init") && registered.has("git-message") && registered.has("cleanup"),
-		"e2e：注册了 14 条命令（11 委托 + 3 本地）",
+		registered.size === 12 && registered.has("skill-init") && registered.has("git-message") && registered.has("cleanup"),
+		"e2e：注册了 12 条命令（11 委托 + 1 本地）",
+		[...registered.keys()].join(","),
+	);
+	check(
+		!registered.has("skill-install") && !registered.has("skill-update"),
+		"e2e：不再注册 /skill-install 与 /skill-update",
 		[...registered.keys()].join(","),
 	);
 	const e2eResult = await registered.get("skill-init").handler({
@@ -671,9 +632,38 @@ try {
 	check(e2eResult.text.includes("过程：作业 skill-init-fake"), "e2e：回执第二行指向作业", e2eResult.text);
 	check(e2eJobs.state.starts[0]?.owner === "session-e2e", "e2e：作业 owner 是当前会话", JSON.stringify(e2eJobs.state.starts[0]));
 
+	// --update 走同一条命令：作业 kind 仍是 skill-init，回执是更新结论。
+	const e2eUpdateResult = await registered.get("skill-init").handler({
+		rawInput: "--update git-kit",
+		signal: undefined,
+		agent: { session: { id: "session-e2e" } },
+	});
+	check(
+		e2eUpdateResult.kind === "success" && e2eUpdateResult.text.includes("已更新：1 个技能"),
+		"e2e：/skill-init --update 走强制更新",
+		e2eUpdateResult.text,
+	);
+	check(
+		e2eJobs.state.starts[1]?.kind === "skill-init" && String(e2eJobs.state.starts[1]?.label).startsWith("更新技能"),
+		"e2e：--update 的作业 kind/label 正确",
+		JSON.stringify(e2eJobs.state.starts[1]),
+	);
+
+	// 非 --update 时不允许位置参数：以前这些词会被静默忽略，现在直接给用法。
+	const badInit = await registered.get("skill-init").handler({
+		rawInput: "git-kit",
+		signal: undefined,
+		agent: { session: { id: "session-e2e" } },
+	});
+	check(
+		badInit.kind === "error" && badInit.text.includes("Usage: /skill-init"),
+		"e2e：/skill-init 的非法位置参数报用法",
+		badInit.text,
+	);
+
 	// /cleanup 与其它命令不同：无参数时必须先问再动（技能第 0 步），不能被通用语带去直接执行。
 	let cleanupMessage;
-	const cleanupResult = registered.get("cleanup").handler({
+	const cleanupResult = await registered.get("cleanup").handler({
 		rawInput: "",
 		signal: undefined,
 		agent: {
@@ -702,7 +692,7 @@ try {
 	);
 
 	let cleanupArgsMessage;
-	registered.get("cleanup").handler({
+	await registered.get("cleanup").handler({
 		rawInput: "看看什么最占地方",
 		signal: undefined,
 		agent: {
@@ -719,8 +709,49 @@ try {
 		cleanupArgsText,
 	);
 
+	// 技能缺失：不注入委托，直接给 /skill-init 与手工 npx 两条修复路径。
+	const emptyHome = join(root, "empty-home");
+	const emptyDsh = join(root, "empty-dsh");
+	await mkdir(emptyHome, { recursive: true });
+	await mkdir(join(emptyDsh, "skills"), { recursive: true });
+	const savedHome = process.env.HOME;
+	const savedDshHome = process.env.DSH_HOME;
+	const savedAgentsHome = process.env.DSH_AGENTS_HOME;
+	process.env.HOME = emptyHome;
+	process.env.DSH_HOME = emptyDsh;
+	process.env.DSH_AGENTS_HOME = join(emptyHome, ".agents");
+	let delegatedWithoutSkill = false;
+	let missingSkillResult;
+	try {
+		missingSkillResult = await registered.get("git-message").handler({
+			rawInput: "修复登录超时",
+			signal: undefined,
+			agent: {
+				session: { id: "session-e2e" },
+				followup() {
+					delegatedWithoutSkill = true;
+				},
+			},
+		});
+	} finally {
+		process.env.HOME = savedHome;
+		process.env.DSH_HOME = savedDshHome;
+		if (savedAgentsHome === undefined) delete process.env.DSH_AGENTS_HOME;
+		else process.env.DSH_AGENTS_HOME = savedAgentsHome;
+	}
+	check(
+		missingSkillResult?.kind === "error" &&
+			missingSkillResult.text.includes("git-kit 未安装") &&
+			missingSkillResult.text.includes("/skill-init") &&
+			missingSkillResult.text.includes("npx -y skills add") &&
+			missingSkillResult.text.includes("-a universal"),
+		"e2e：技能缺失时不委托，给出 /skill-init 与手工安装命令",
+		missingSkillResult?.text,
+	);
+	check(!delegatedWithoutSkill, "e2e：技能缺失时没有注入 user 消息");
+
 	// ---- 10) 交互确认：有变更先问，取消/继续/--yes 都不炸 ---------------
-	const { askInstallSource, needsConfirmation, confirmationRequest, confirmSkillOperation } = await import("../lib/confirm.js");
+	const { needsConfirmation, confirmationRequest, confirmSkillOperation } = await import("../lib/confirm.js");
 	const actionablePlan = {
 		skipReason: undefined,
 		source: "morehao/ai-kit",
@@ -743,11 +774,9 @@ try {
 		"blocked plan",
 	);
 	check(
-		needsConfirmation({ name: "skill-install" }, { ...actionablePlan, requested: [] }) === true,
-		"confirm：装整个来源前需要确认",
-		"install all",
+		needsConfirmation({ name: "skill-init" }, { ...actionablePlan, kind: "skill-update" }) === false,
+		"confirm：--update 是显式更新，不弹确认",
 	);
-	check(needsConfirmation({ name: "skill-update" }, actionablePlan) === false, "confirm：update 是显式更新，不弹确认");
 
 	const managedState = { name: "handoff", state: "managed", isSymlink: true, isDirectory: false };
 	const initPlan = {
@@ -768,23 +797,6 @@ try {
 		"confirm：init 的说明逐项列出未安装/已安装",
 		initRequest.detail,
 	);
-	const installRequest = confirmationRequest(
-		{ name: "skill-install" },
-		{
-			...actionablePlan,
-			requested: [],
-			targets: [],
-			pending: [],
-			states: [],
-			source: "acme/bundle",
-			freshness: { cacheSource: true, fresh: false, changed: [] },
-		},
-	);
-	check(
-		installRequest.question.includes("acme/bundle") && installRequest.question !== initRequest.question,
-		"confirm：install 的问题带上来源，不再复用 init 文案",
-		JSON.stringify(installRequest),
-	);
 	const choiceQuestions = {
 		async ask(request) {
 			return { answers: [{ id: request.questions[0].id, selected: ["只补缺失"] }] };
@@ -797,22 +809,6 @@ try {
 		plan: initPlan,
 	});
 	check(missingDecision.action === "proceed" && missingDecision.choice === "missing", "confirm：选择「只补缺失」映射为 choice=missing", JSON.stringify(missingDecision));
-
-	const customQuestions = {
-		async ask(request) {
-			return { answers: [{ id: request.questions[0].id, selected: [], custom: "acme/toolkit" }] };
-		},
-	};
-	const askedSource = await askInstallSource({
-		userQuestions: customQuestions,
-		agent: { session: { id: "session-confirm" } },
-		env: {},
-	});
-	check(
-		askedSource.action === "proceed" && askedSource.source === "acme/toolkit",
-		"confirm：/skill-install 无来源时支持自由输入来源",
-		JSON.stringify(askedSource),
-	);
 
 	// 把 git-kit 换回非托管软链，制造一个「可执行待办 + 真实目录」的混合计划。
 	await rm(linkPath("git-kit"), { force: true });
@@ -884,45 +880,6 @@ try {
 	);
 	check(confirmJobs.state.starts.length === 2, "--yes：仍然执行作业", JSON.stringify(confirmJobs.state.starts));
 
-	// /skill-install 无来源：问题卡返回自定义来源后，直接进入安装（不再追问「装全部」）。
-	const sourceQuestions = {
-		calls: [],
-		async ask(request) {
-			this.calls.push(request);
-			return { answers: [{ id: request.questions[0].id, selected: [], custom: "acme/bundle" }] };
-		},
-	};
-	const sourceRegistered = new Map();
-	apply({
-		effect: (generator) => driveEffect(generator),
-		get: (name) =>
-			name === "jobs" ? confirmJobs.api : name === "userQuestions" ? sourceQuestions : undefined,
-		commands: {
-			register(definition) {
-				sourceRegistered.set(definition.name, definition);
-				return () => sourceRegistered.delete(definition.name);
-			},
-		},
-	});
-	const sourceResult = await sourceRegistered.get("skill-install").handler({
-		rawInput: "",
-		signal: undefined,
-		agent: confirmAgent,
-	});
-	check(sourceQuestions.calls.length === 1, "confirm：/skill-install 无来源只问一次来源", String(sourceQuestions.calls.length));
-	check(
-		sourceQuestions.calls[0]?.questions?.[0]?.id === "skill-install-source",
-		"confirm：来源问题 id 稳定",
-		JSON.stringify(sourceQuestions.calls[0]?.questions?.[0]),
-	);
-	check(
-		sourceResult.kind === "success" && sourceResult.text.includes("acme/bundle"),
-		"confirm：自定义来源进入安装流程",
-		sourceResult.text,
-	);
-	check(confirmJobs.state.starts.length === 3, "confirm：自定义来源也建作业", JSON.stringify(confirmJobs.state.starts));
-	check(confirmJobs.state.starts[2]?.kind === "skill-install", "confirm：作业 kind 是 skill-install");
-
 	// choice=missing：只补不存在的条目，不重装已托管技能。
 	await rename(linkPath("handoff"), join(root, "handoff-missing-link"));
 	const callsBeforeMissing = await stubCalls();
@@ -948,4 +905,4 @@ if (failures > 0) {
 	console.error(`冒烟失败：${failures} 项`);
 	process.exit(1);
 }
-console.log("冒烟通过：/skill-init、/skill-install、/skill-update 行为符合预期");
+console.log("冒烟通过：/skill-init 与 --update 行为符合预期");
