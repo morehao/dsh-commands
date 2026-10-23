@@ -6,6 +6,19 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **命令卡实时状态（web client half）**：`lib/client.js` 注册 `conversation.chat.commandview`，按命令名接管 `/skill-init`、`/skill-install`、`/skill-update` 的卡片。执行前显示「等待确认」，执行中显示阶段、计时、可展开日志和停止按钮；完成/失败/取消/停止后保留结论。没有 client half 时仍回退 dsh 通用卡。
+- **离开会话的完成感知**：`shell.overlay` 在右下角弹应用级完成/失败提示，带「查看」；`sidebar.session.row.leading` 给「技能维护」会话保留未读点，点开会话即清。tracker 在命令卡卸载后继续 `ctx.jobs.watchRows(sessionId)` 到本次作业结算，所以切到别的会话也能收到。仍然是零 token：不新增 host 事件、不唤醒模型。
+- **`/skill-init` 的「只补缺失」**：确认卡按 plan 生成问题、现状清单和范围选项；选「只补缺失」只装 `state=missing` 的条目，跳过上游比对和已有条目。`/skill-install` 装整个远端来源时可选「只装缺少的」：先列出来源技能，再过滤已托管项。
+
+### 变更
+
+- 确认问题不再复用「执行上述技能维护操作，继续执行？」模板；`/skill-init` 列出逐项现状（未安装/已安装/真实目录/非托管软链），`/skill-install` 带上来源与技能数，选项按命令生成。
+- `LOCAL_COMMANDS` 的 `run` 新增 `choice`（`all` / `missing`），由确认结果传入；`--yes`、无问答 UI、无活 agent 时默认 `all`。
+- `package.json` 增加 `exports["./client"]` 与 `dsh.client`（platform `web`、`immediately`）；`lib/client.js` 是预打包 bundle，不引入构建步骤。
+- 文档同步命令卡、完成提示、未读点、`choice` 语义与 client half 打包约束。
+
 ## [v0.1.14] - 2026-10-23
 
 ### 新增

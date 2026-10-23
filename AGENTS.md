@@ -4,7 +4,7 @@
 
 ## 1. 项目速览
 
-- 包：`@morehao/dsh-commands`，dsh 原生斜杠命令集合；**仓库根即包根**，纯 ESM，无构建步骤。
+- 包：`@morehao/dsh-commands`，dsh 原生斜杠命令集合；**仓库根即包根**。host 是纯 ESM、无构建步骤；web client half 是手写的预打包 bundle（`lib/client.js`），同样不需要构建。
 - 入口：[lib/index.js](lib/index.js) 注册 `COMMANDS`（委托型）与 `LOCAL_COMMANDS`（本地执行型）。
 - 技能逻辑不在本仓：`git-kit` / `handoff` / `disk-cleanup` 由 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 提供；本仓只做「命令 → skill 分支」的薄映射。
 - 运行时：Node.js ≥ 22.20；唯一 npm 依赖 `skills`（优先直接调用其 CLI，缺失时回退 `npx -y skills`）。
@@ -17,7 +17,8 @@
 | [lib/skill-cache.js](lib/skill-cache.js) | 来源浅克隆缓存、TTL、lock 回写 |
 | [lib/skill-paths.js](lib/skill-paths.js) | `$DSH_HOME` / `$DSH_AGENTS_HOME` / canonical / lock 路径 |
 | [lib/job-progress.js](lib/job-progress.js) | 长任务挂到 `ctx.jobs`、作业行/面板/停止/降级 |
-| [lib/confirm.js](lib/confirm.js) | 本地命令执行前的 `ctx.userQuestions` 确认、来源询问、`--yes` 降级 |
+| [lib/confirm.js](lib/confirm.js) | 本地命令执行前的 `ctx.userQuestions` 确认、按命令生成范围选项、来源询问、`--yes` 降级 |
+| [lib/client.js](lib/client.js) | web client half：命令状态卡、应用级完成提示、会话行未读点 |
 | [lib/proc.js](lib/proc.js) / [lib/text.js](lib/text.js) | 子进程 timeout/abort/输出上限；ANSI/spinner/tail 清洗 |
 | [scripts/](scripts/) | 契约校验、命名/打包校验、离线冒烟、发布脚本 |
 | [docs/](docs/) | 人类向架构、技能自举、过程可见、开发、发布、历史 |
@@ -51,6 +52,7 @@
 - 测试必须离线、用临时 HOME；禁止碰真实 `~/.dsh`、`~/.agents` 或真实技能目录。用 `DSH_COMMANDS_SKILL_CLI_OVERRIDE` 注入 stub。
 - 破坏性操作（push、tag、publish、删缓存、改真实 HOME、覆盖/删除软链）先征得用户确认；本仓设计上**不做备份、不删真实目录**。
 - 改 `lib/` 后需重启 dsh web；只有 `link:` 接入时源码即时生效。npm 版是拷贝。
+- `lib/client.js` 是 `window.__ModuleLoader__` 预打包 bundle；不要引入 `@deepseek-ai/*` 运行时 import，React 只从 `require("react")` 取。
 - `.dsh/` 是本地过程文档，已 gitignore；不要把其中的草稿当权威，也不要提交。
 
 ## 3. 常用命令
@@ -63,6 +65,7 @@
 | 三处命名 | `node scripts/check-naming.mjs` |
 | 打包白名单 | `node scripts/check-pack.mjs` |
 | Release body 投影冒烟 | `node scripts/smoke-release-notes.mjs` |
+| Client bundle 接线冒烟 | `node scripts/smoke-client-bundle.mjs` |
 
 ## 4. 任务路由
 

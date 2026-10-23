@@ -1,6 +1,6 @@
 name: check
 
-# 最小 CI：不构建、不装依赖、不跑测试（本仓没有构建产物也没有测试）。
+# 最小 CI：不构建、不装依赖，用离线冒烟代替真实安装。
 # 目标是把「只有真正发版时才会暴露」的机械错误前移到 PR —— 发布是 tag 触发、tag 推上去就不可改，
 # 失败只能事后发现（v0.1.6 就是实例：tag 已推、run 失败，只能补发）。
 on:
@@ -35,8 +35,11 @@ jobs:
           node --check lib/text.js
           node --check lib/proc.js
           node --check lib/job-progress.js
+          node --check lib/confirm.js
+          node --check lib/client.js
           node --check scripts/smoke-skill-setup.mjs
           node --check scripts/smoke-skill-cache.mjs
+          node --check scripts/smoke-client-bundle.mjs
 
       # Release body 由 CI 从注记 tag 投影（见 release.yml），取正文必须与 git-kit 的读回管道逐字一致。
       - name: 发布说明投影（Release body）
@@ -49,6 +52,10 @@ jobs:
 
       - name: 打包内容白名单
         run: node scripts/check-pack.mjs
+
+      # Client half 接线：加载 bundle，确认命令卡 / 完成提示 / 未读点注册到约定槽。
+      - name: Client bundle 冒烟
+        run: node scripts/smoke-client-bundle.mjs
 
       # 技能自举（/skill-init、/skill-update）：用 stub 顶替 npx skills，不联网、不碰真实 home。
       - name: 技能自举冒烟
