@@ -166,7 +166,8 @@ try {
 	// 假 git 卡住：预检必须在自己的超时内杀掉它，而不是等硬超时
 	const fakeBin = join(root, "fake-bin");
 	await mkdir(fakeBin, { recursive: true });
-	await writeFile(join(fakeBin, "git"), "#!/bin/sh\nexec sleep 5\n", { mode: 0o755 });
+	// 用绝对路径：测试把 PATH 收窄成 fake-bin，Linux 上 PATH 里没有 sleep。
+	await writeFile(join(fakeBin, "git"), "#!/bin/sh\nexec /bin/sleep 5\n", { mode: 0o755 });
 	const timedOutProbe = await probeSourceReachability("acme/slow", {
 		env: { PATH: fakeBin, DSH_COMMANDS_SKILL_PROBE_MS: "120" },
 	});
