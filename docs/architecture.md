@@ -18,27 +18,29 @@
 }
 ```
 
-本地执行型命令是另一张表 `LOCAL_COMMANDS`（`/skill-init`、`/skill-install`、`/skill-update`），见 [技能自举](./skill-setup.md)。它们依赖的技能集合由 `COMMANDS` 推导：
+本地执行型命令是另一张表 `LOCAL_COMMANDS`，现在只有一个 `/skill-init`（`--update` 走同一命令的更新分支），见 [技能自举](./skill-setup.md)。它依赖的技能集合由 `COMMANDS` 推导：
 
 ```js
 export const REQUIRED_SKILLS = Object.freeze(referencedSkills(COMMANDS));
 ```
 
-新增/删除委托型命令后，技能自举与 `/skill-update` 自动跟进，不需要维护第二份清单。
+新增/删除委托型命令后，技能自举与 `--update` 自动跟进，不需要维护第二份清单。
 
 `LOCAL_COMMANDS` 的每条声明包含 `plan` / `label` / `run` 三个函数：
 
 ```js
 {
-  plan: (commands, input, options) => planSkillOperation("skill-init", commands, input, options),
-  label: (_input, plan) => `检查依赖技能（${plan.targets.join("、")}）`,
-  run: (commands, input, options) => runSkillInit(commands, options),
+  plan: (commands, input, options) =>
+    planSkillOperation(options.update ? "skill-update" : "skill-init", commands, input, options),
+  label: (_input, plan) => plan?.kind === "skill-update" ? "更新技能：…" : "检查依赖技能（…）",
+  run: (commands, input, options) =>
+    options.update ? runSkillUpdate(commands, input, options) : runSkillInit(commands, options),
 }
 ```
 
 - `plan` 只做本地判定（不联网）：要不要建作业、处理哪些技能、是否已最新；
 - handler 把 `plan` 的结果同时用于 `runInJob.skip`、`run({ plan })` 与作业 label，所以同一条规则只算一次；
-- 有可执行变更时，handler 先通过 `ctx.userQuestions` 让用户确认（`lib/confirm.js`），问题/选项按命令和本次 plan 生成，确认结果以 `choice`（`all` / `missing`）传进 `run`；`--yes` 跳过，无问答能力时降级直接执行；
+- 有可执行变更时，handler 先通过 `ctx.userQuestions` 让用户确认（`lib/confirm.js`），问题/选项按本次 plan 生成，确认结果以 `choice`（`all` / `missing`）传进 `run`；`--yes` 跳过，`--update` 显式更新不打断，无问答能力时降级直接执行；
 - web 端由 `lib/client.js` 接管命令卡（实时阶段/计时/日志/停止），并用 `shell.overlay` + 会话行未读点补离开会话后的完成感知；不新增 host 事件；
 - `run` 不再自己 inspect 技能或比对 hash，只执行 plan 与措辞；回执首行是 `✓/✅/⚠` 结论，第二行才是「过程：作业 …」。
 
@@ -46,10 +48,11 @@ export const REQUIRED_SKILLS = Object.freeze(referencedSkills(COMMANDS));
 
 1. 用户从斜杠菜单执行命令，进入 `makeHandler(def)`。
 2. handler 校验必填输入（`required`），缺失时返回 `Usage: /<name> <hint>` 示例。
-3. `buildInstruction(def, input)` 生成一段委托指令。
-4. 指令被包装成一条 **user 消息**，通过 `invocation.agent.followup()` 注入当前会话。
-5. agent 用 `skill` 工具加载对应 skill，把本次请求视为 `branch` 分支，按该分支的完整流程执行；需要用户决策（候选分支名 / PR·MR 编号 / tag 版本号 / 交接范围等）时先确认。
-6. 命令卡片返回 `已按 <skill> <branch> 分支委托执行…` 的结算文案。
+3. 预检依赖技能（`$DSH_HOME/skills`、`$DSH_AGENTS_HOME/skills` 或 canonical `~/.agents/skills`）；缺失时不注入委托，直接返回 `/skill-init` 与手工 `npx` 两条修复路径。
+4. `buildInstruction(def, input)` 生成一段委托指令。
+5. 指令被包装成一条 **user 消息**，通过 `invocation.agent.followup()` 注入当前会话。
+6. agent 用 `skill` 工具加载对应 skill，把本次请求视为 `branch` 分支，按该分支的完整流程执行；需要用户决策（候选分支名 / PR·MR 编号 / tag 版本号 / 交接范围等）时先确认。
+7. 命令卡片返回 `已按 <skill> <branch> 分支委托执行…` 的结算文案。
 
 user 消息由 `userMessage()` **手工构造**，形态与官方 `createUserMessage` 的契约一致（`role` / `source` / `content` / `id` 齐全，深冻结），因此本模块不依赖任何 `@deepseek-ai/*` 运行时 import。`source` 字段必填——dsh 的 Message 契约会读 `message.source.kind`，缺失会在 agent 回合崩溃。
 
@@ -75,7 +78,7 @@ user 消息由 `userMessage()` **手工构造**，形态与官方 `createUserMes
 
 这不影响聊天区的命令行显示：`GenericCommandCard` 只渲染命令名与结算文案，不渲染 `args`。
 
-本地执行型命令相反，注册 `recordInput: true`：它们的输入只是可选的技能名/来源，没有别的权威事件承载这份 payload。
+本地执行型命令相反，注册 `recordInput: true`：它的输入只是可选的技能名（`--update` 时），没有别的权威事件承载这份 payload。
 
 ## 描述文本不做 i18n（有意为之）
 
@@ -83,7 +86,7 @@ dsh 只本地化它自己的 6 条一方命令：客户端 `HOST_DESCRIPTION_KEY
 
 第三方也**无法**用同名客户端 `CommandContribution` 覆盖：同名会在候选合成时以 `collides with a host command` 直接抛错；`CommandDecoration` 又**没有** `description` 字段。Host 侧同样拿不到语言偏好——`SettingsProvider` 只提供 `register()`，namespace `locale` 已被 locale 插件独占（重复注册会抛错），且 `locale.preference` 缺省时本就交给浏览器 `navigator.language` 决定。
 
-因此本插件 14 条命令描述直接写中文：中文界面下与一方命令表现一致。若将来 dsh 开放第三方描述 i18n 钩子，再改为按键取值。
+因此本插件 12 条命令描述直接写中文：中文界面下与一方命令表现一致。若将来 dsh 开放第三方描述 i18n 钩子，再改为按键取值。
 
 ## 生效与重启
 

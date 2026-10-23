@@ -8,10 +8,11 @@
 | 表 | 位置 | 谁执行 | 典型命令 |
 |---|---|---|---|
 | `COMMANDS` | `lib/index.js` | agent 加载 skill 后执行 | `/git-message`、`/git-pr-create`、`/cleanup` |
-| `LOCAL_COMMANDS` | `lib/index.js` | handler 直接执行 | `/skill-init`、`/skill-install`、`/skill-update` |
+| `LOCAL_COMMANDS` | `lib/index.js` | handler 直接执行 | `/skill-init`（`--update` 是同一命令的更新分支） |
 
 - 委托型：handler 只校验输入 → 生成指令 → `invocation.agent.followup(userMessage(...))`；不在本仓跑技能脚本。
-- 本地型：handler 按 `plan` → （需要时 `ctx.userQuestions` 确认）→ `runInJob` → `run` 执行；不经过 agent，结果必须确定。`--yes` 跳过确认；无问答能力时降级直接执行。
+- 本地型：handler 按 `plan` → （需要时 `ctx.userQuestions` 确认）→ `runInJob` → `run` 执行；不经过 agent，结果必须确定。`--yes` 跳过确认，`--update` 走强制更新且不打断；无问答能力时降级直接执行。
+- 委托型 handler 在执行前会预检依赖技能是否落在 `$DSH_HOME/skills`、`$DSH_AGENTS_HOME/skills` 或 canonical `~/.agents/skills`；缺失时返回 `/skill-init` 与手工 `npx` 指引，不注入消息。
 - `REQUIRED_SKILLS` 从 `COMMANDS` 推导（`skill ?? "git-kit"` 去重）；不要写第二份依赖清单。
 
 ## 2. 字段语义
@@ -82,8 +83,9 @@
 | 会话回合崩溃，提示 `source` | `userMessage()` 是否保留 `source: { kind: "user" }` |
 | 命令卡片参数重复 | 是否把委托型 `recordInput` 改成了 `true` |
 | `/handoff` 加载失败 | `readFallback` 是否还在；技能是否标了 `disable-model-invocation` |
-| `/skill-*` 看不到过程/结果 | 回执首行是否为 `✓/✅/⚠` 结论；第二行是否有「过程：作业 …」；是否被 `--yes` 或降级路径影响 |
-| `/skill-*` 有变更却没弹确认 | `needsConfirmation()` 是否只看到真实目录；`ctx.userQuestions` 是否可用；是否带了 `--yes` |
+| `/skill-init` 看不到过程/结果 | 回执首行是否为 `✓/✅/⚠` 结论；第二行是否有「过程：作业 …」；是否被 `--yes` 或降级路径影响 |
+| `/skill-init` 有变更却没弹确认 | `needsConfirmation()` 是否只看到真实目录；`ctx.userQuestions` 是否可用；是否带了 `--yes` 或 `--update` |
+| `/git-*` 提示技能未安装 | 依赖技能是否在 `$DSH_HOME/skills` / `$DSH_AGENTS_HOME/skills` / `~/.agents/skills`；先跑 `/skill-init`，或按回执里的 `npx` 命令手工装 |
 | 确认卡住/命令不返回 | `confirmSkillOperation()` 是否在无问答能力时降级；是否只有 `ASK_CANCELLED` 才取消 |
 | 契约校验失败 | 技能是否安装、`DSH_HOME` 是否指向正确技能根、ai-kit 是否改了分支名 |
 

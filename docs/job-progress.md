@@ -14,7 +14,7 @@
 
 ## 执行前确认
 
-有可执行变更（需要安装/替换软链，或缓存过期需要联网检查）时，handler 会在建作业之前用 `ctx.userQuestions` 问一次。问题、选项和说明都按命令与本次 plan 生成，不再复用模板句：
+有可执行变更（需要安装/替换软链，或缓存过期需要联网检查）时，handler 会在建作业之前用 `ctx.userQuestions` 问一次。问题、选项和说明都按本次 plan 生成，不再复用模板句：
 
 ```
 检查依赖技能
@@ -28,16 +28,15 @@
 ```
 
 - `/skill-init` 有缺失时给「处理全部 / 只补缺失」；只有上游更新时给「处理全部」；只有缓存过期时给「联网检查」。`choice` 会传到 `run*`，`missing` 只装 `state=missing` 的条目，已有条目不动（为了拿到缺失技能，远端缓存仍可能 fetch）。
-- `/skill-install <来源> [技能名...]` 的问题带来源和技能数；装整个来源时给「全部安装 /（远端缓存）只装缺少的 / 取消」。
 - 取消 → 回执 `已取消 /skill-init，未做任何变更。`，不建作业。
 - `--yes` → 完全跳过确认，适合自动化。
 - 真实目录/文件会跳过链入、不会删除，但来源仍会装到 canonical，所以同样会问；确认卡会说明这一点。
 - 没有 `userQuestions`、没有活 agent、或命令被委派时**不阻塞**：直接执行，回执末尾补「确认：当前会话不支持交互确认，已直接执行。」
-- `/skill-update` 是用户显式要求更新，不弹确认。
+- `--update` 是用户显式要求更新，不弹确认。
 
 ## 确认最新 / 无事可做时不建作业
 
-`/skill-init`、`/skill-install`、`/skill-update` 会先判定「有没有需要装/修的技能」：
+`/skill-init`（含 `--update`）会先判定「有没有需要装/修的技能」：
 
 - 缓存 TTL 内且 lock 的 `skillFolderHash` 与缓存 git tree hash 一致 → 内容确实最新，不建作业，回执首行 `✓ 已是最新 · …`；
 - TTL 过期或无缓存 → 建作业 fetch 上游；hash 没变就只出「已是最新」，不重复执行 `skills add`；
@@ -54,13 +53,11 @@
 | `/skill-init`，需要装/换软链（首次 clone） | 建（执行前确认） | `✅ 已完成：3 项变更 · 8.0s · 后台作业` |
 | `/skill-init`，需要装/换软链（已缓存） | 建（执行前确认） | `✅ 已完成：1 项变更 · 1.0s · 后台作业` |
 | `/skill-init`，真实目录遮蔽 | 建（仍会确认：来源会装 canonical，但链入会被拒绝） | `⚠ 已完成，但有 1 项需处理 · 0.5s` |
-| `/skill-install <来源> <技能名>`，TTL 内 hash 一致 | 不建 | `✓ 已是最新 · 0.7s` |
-| `/skill-install <来源> <技能名>`，TTL 过期且上游有变化 | 建（执行前确认） | `✅ 已安装：1 个技能 · 2s · 后台作业` |
-| `/skill-install <来源>`，不指定技能名 / 有新装 | 建（装全部前确认） | `✅ 已安装：7 个技能 · 1–3s · 后台作业` |
+| `/skill-init --update` | 建（显式更新，不确认） | `✅ 已更新：3 个技能 · 4.5s · 后台作业` |
 
-第二行固定是「过程：作业 …」/「未创建后台任务（短因）」/「未启用后台任务（原因）」；技能/来源/缓存明细从第三行开始。首行保持短，是为了折叠状态下也能看到结论和 `· 后台作业`。
+第二行固定是「过程：作业 …」/「未创建后台任务（短因）」/「未启用后台任务（原因）」；技能/缓存明细从第三行开始。首行保持短，是为了折叠状态下也能看到结论和 `· 后台作业`。
 
-网络不通时是例外：首次 clone 前的 `git ls-remote` 预检默认 8s 内失败，命令卡片直接出「连不上技能来源 …」并给代理/镜像提示，不需要等 `clone`。网络正常时，首次 clone 约 8s；之后从本地缓存安装约 1–2s；`/skill-update` 强制 fetch 约 4–6s（随网络变化）。没有 client half 时，这段时间卡片显示「执行中…」，阶段文案与流式输出在作业面板里；有 client half 时，卡片直接显示阶段、计时和日志。
+网络不通时是例外：首次 clone 前的 `git ls-remote` 预检默认 8s 内失败，命令卡片直接出「连不上技能来源 …」并给代理/镜像提示，不需要等 `clone`。网络正常时，首次 clone 约 8s；之后从本地缓存安装约 1–2s；`--update` 强制 fetch 约 4–6s（随网络变化）。没有 client half 时，这段时间卡片显示「执行中…」，阶段文案与流式输出在作业面板里；有 client half 时，卡片直接显示阶段、计时和日志。
 
 ## 为什么不耗 token
 
@@ -85,7 +82,7 @@
 实现要点：
 
 - 命令卡挂载时把 `sessionId` 注册到 client 侧的 tracker；卡片卸载后 tracker 仍持有 `ctx.jobs.watchRows(sessionId)`，直到本次 skill 作业结算。
-- tracker 只对 `kind` 为 `skill-init` / `skill-install` / `skill-update` 的作业发提示；作业结算后推 toast、按当前会话决定是否标未读。
+- tracker 只对 `kind` 为 `skill-init` 的作业发提示（`--update` 的 kind 仍是 `skill-init`）；作业结算后推 toast、按当前会话决定是否标未读。
 - 点击「查看」走 `ctx.uiWorkspace.openSession(sessionId)`；当前会话切过去时清未读。
 - 不新增 host 事件、不唤醒模型；客户端的 toast/未读是派生状态，刷新后不保留（v1 内存态）。
 
@@ -101,7 +98,7 @@ host 的 `apply` 不把 `jobs` 写进 `inject`，所以没有 jobs 的组合照�
 
 ## 实现约束
 
-- `lib/skill-setup.js` 的 `planSkillOperation()` 与三个 `run*` 只认 `reporter.progress` / `reporter.write`，不直接接触 `ctx.jobs`；这层适配全在 `lib/job-progress.js` 的 `runInJob` / `NO_REPORTER`。来源缓存与 lock 回写在 `lib/skill-cache.js`；输出清洗与子进程分别在 `lib/text.js` / `lib/proc.js`；执行前确认在 `lib/confirm.js`。
+- `lib/skill-setup.js` 的 `planSkillOperation()` 与 init/update 两个 `run*` 只认 `reporter.progress` / `reporter.write`，不直接接触 `ctx.jobs`；这层适配全在 `lib/job-progress.js` 的 `runInJob` / `NO_REPORTER`。来源缓存与 lock 回写在 `lib/skill-cache.js`；输出清洗与子进程分别在 `lib/text.js` / `lib/proc.js`；执行前确认在 `lib/confirm.js`。
 - `lib/client.js` 是 web client half（预打包 `window.__ModuleLoader__` bundle，不需要构建）：注册 `conversation.chat.commandview`、`shell.overlay`、`sidebar.session.row.leading` 三个槽；把 `ctx.jobs` 快照映射成卡片/提示/未读，不写 host 事件。
 - 失败回执会剥掉 ANSI、框线与 CLI 的 ASCII logo（`lib/text.js` 的 `tail()`），完整输出留在作业面板里；只保留最后 15 行、单行 240 字符、整段 1200 字符，避免 clack 的进度重绘把命令卡片撑到几十 KB。
 - 作业输出先去 ANSI 再旁路：面板是纯文本终端，不去色会把 `[38;5;250m` 之类转义码原样显示。

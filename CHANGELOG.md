@@ -4,20 +4,26 @@
 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 的 `commands-dsh/` 目录发布，
 2026-10 起在本仓发布；npm 包名未变，版本号连续。
 
-## [Unreleased]
+## [v0.2.0] - 2026-10-23
+
+### 破坏性变更
+
+- **删除 `/skill-install`**：任意来源的技能安装不再由插件提供。dsh 会扫描 canonical `~/.agents/skills`，直接执行 `npx -y skills add <来源> --skill <名称> -g -a universal -y` 即可；也可以用自然语言让 agent 执行。附带删除来源询问、四路并集建链、只装缺少的、安装专用 freshness 等逻辑。
+- **`/skill-update` 并入 `/skill-init --update`**：`/skill-init --update [技能名...]` 强制更新依赖技能，显式更新不弹确认；原来单独注册的 `/skill-update` 删除。本地命令面从 3 条变为 1 条。
+- **委托型命令增加依赖预检**：技能未安装时不再注入委托消息，直接返回 `/skill-init` 与手工 `npx` 指引，避免 agent 拿到一条注定失败的指令。
 
 ### 新增
 
-- **命令卡实时状态（web client half）**：`lib/client.js` 注册 `conversation.chat.commandview`，按命令名接管 `/skill-init`、`/skill-install`、`/skill-update` 的卡片。执行前显示「等待确认」，执行中显示阶段、计时、可展开日志和停止按钮；完成/失败/取消/停止后保留结论。没有 client half 时仍回退 dsh 通用卡。
+- **命令卡实时状态（web client half）**：`lib/client.js` 注册 `conversation.chat.commandview`，接管 `/skill-init`（含 `--update`）的卡片。执行前显示「等待确认」，执行中显示阶段、计时、可展开日志和停止按钮；完成/失败/取消/停止后保留结论。没有 client half 时仍回退 dsh 通用卡。
 - **离开会话的完成感知**：`shell.overlay` 在右下角弹应用级完成/失败提示，带「查看」；`sidebar.session.row.leading` 给「技能维护」会话保留未读点，点开会话即清。tracker 在命令卡卸载后继续 `ctx.jobs.watchRows(sessionId)` 到本次作业结算，所以切到别的会话也能收到。仍然是零 token：不新增 host 事件、不唤醒模型。
-- **`/skill-init` 的「只补缺失」**：确认卡按 plan 生成问题、现状清单和范围选项；选「只补缺失」只装 `state=missing` 的条目，跳过上游比对和已有条目。`/skill-install` 装整个远端来源时可选「只装缺少的」：先列出来源技能，再过滤已托管项。
+- **`/skill-init` 的「只补缺失」**：确认卡按 plan 生成问题、现状清单和范围选项；选「只补缺失」只装 `state=missing` 的条目，跳过上游比对和已有条目。
 
 ### 变更
 
-- 确认问题不再复用「执行上述技能维护操作，继续执行？」模板；`/skill-init` 列出逐项现状（未安装/已安装/真实目录/非托管软链），`/skill-install` 带上来源与技能数，选项按命令生成。
-- `LOCAL_COMMANDS` 的 `run` 新增 `choice`（`all` / `missing`），由确认结果传入；`--yes`、无问答 UI、无活 agent 时默认 `all`。
+- 确认问题不再复用「执行上述技能维护操作，继续执行？」模板；`/skill-init` 列出逐项现状（未安装/已安装/真实目录/非托管软链），选项按本次 plan 生成。
+- `LOCAL_COMMANDS` 的 `run` 新增 `choice`（`all` / `missing`），由确认结果传入；`--yes`、无问答 UI、无活 agent 时默认 `all`。`--update` 走强制更新分支且不打断。
 - `package.json` 增加 `exports["./client"]` 与 `dsh.client`（platform `web`、`immediately`）；`lib/client.js` 是预打包 bundle，不引入构建步骤。
-- 文档同步命令卡、完成提示、未读点、`choice` 语义与 client half 打包约束。
+- 文档同步命令卡、完成提示、未读点、`choice` 语义、`--update` 与 client half 打包约束。
 
 ## [v0.1.14] - 2026-10-23
 
