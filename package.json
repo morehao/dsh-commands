@@ -56,9 +56,10 @@
     }
   },
   "scripts": {
-    "test": "npm run smoke:client && npm run smoke:setup && npm run smoke:cache",
+    "test": "npm run smoke:client && npm run smoke:setup && npm run smoke:plan && npm run smoke:cache",
     "smoke:client": "node scripts/smoke-client-bundle.mjs",
     "smoke:setup": "node scripts/smoke-skill-setup.mjs",
+    "smoke:plan": "node scripts/smoke-skill-plan.mjs",
     "smoke:cache": "node scripts/smoke-skill-cache.mjs",
     "check": "npm run check:syntax && npm run check:naming && npm run check:pack && npm run check:release-notes && npm test",
     "check:syntax": "node scripts/check-syntax.mjs",
