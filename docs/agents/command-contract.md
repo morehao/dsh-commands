@@ -27,7 +27,7 @@
 | `description` | 两类 | 直接写中文；原样进菜单，不做 i18n |
 | `noInput` | 委托型 | 无参数时追加的专门指引；不设则注入「按分支流程默认处理」 |
 | `confirm` | 委托型 | 有参数时提示用户需确认的事项；默认是 git 语境 |
-| `readFallback` | 委托型 | 仅用于 `disable-model-invocation` 的技能（当前是 `handoff`） |
+| `readFallback` | 委托型 | 技能可能被 `disable-model-invocation` 拒绝加载时的 read 兜底（当前仅 `handoff`，属旧安装兼容；上游 #51 已移除该标记） |
 
 `recordInput` 不在每条声明里写：两类命令统一 `false`，由 `apply()` 固定。不要为了「记录参数」改回 `true`。
 
@@ -53,7 +53,7 @@
 - 无参数且没有 `noInput`：请求写「（未附加说明，按分支流程默认处理）」，再追加默认 `confirm` 提示。
 - 无参数且有 `noInput`：请求写「（未附加说明）」，只追加 `noInput` 全文；不要再补默认处理语。
 - 有参数且有 `confirm`：提示用户确认 `confirm` 列出的事项。
-- `readFallback: true`：追加「若 skill 工具报 not available for model invocation，改用 read 读 `$DSH_HOME/skills/<skill>/SKILL.md`」。
+- `readFallback: true`：追加「若 skill 工具报 not available for model invocation，改用 read 读技能文件」——优先 `$DSH_HOME/skills/<skill>/SKILL.md`，不存在时读本源 `~/.agents/skills/<skill>/SKILL.md`（上游 #50 之后本源才是真实内容，只给软链层会指空）。
 - 不要把技能流程写进注入文本；agent 会自己读 skill。
 
 ## 5. 为什么这些字段是这样
@@ -76,10 +76,11 @@
 ## 7. 跨仓契约
 
 - 技能在 agent-skills；本仓只存映射。技能改分支名而插件没跟，命令仍可点，但结果不对。
-- [check-skill-contract.mjs](../../scripts/check-skill-contract.mjs) 读取 `COMMANDS`，检查 `$DSH_HOME/skills/<skill>/SKILL.md` 与 `references/<branch>.md`；单分支技能只校验 `SKILL.md`。
+- [check-skill-contract.mjs](../../scripts/check-skill-contract.mjs) 读取 `COMMANDS`，按 `skillRoots()` 找技能（`$DSH_HOME/skills` → `$DSH_AGENTS_HOME/skills` → 本源 `~/.agents/skills`，与 handler 预检同序），再检查 `references/<branch>.md`；单分支技能只校验 `SKILL.md`。缺技能按技能去重报一次。
+- 不要退回「只看 `$DSH_HOME/skills`」：上游 #50 之后本源才是真实内容，软链层可能没建（`skills-fanout.sh` 才建）。
 - `handoff` 的 `branch: "print"` 是装饰性的：它没有 `references/`，不要为了通过校验去改技能文案。
 - 技能未安装时契约校验必然失败；先 `/skill-init`，或在交付说明里写明未跑及原因。
-- CI 默认不跑契约校验（依赖另一仓的技能目录）。
+- CI 默认不跑契约校验（依赖另一仓的技能目录）；根顺序与失败输出由 `smoke-skill-contract.mjs` 在临时 HOME 覆盖。
 
 ## 8. 常见故障
 
@@ -91,12 +92,12 @@
 | 命令卡片参数重复 | 是否把 `recordInput` 改成了 `true`（输入已在注入消息里） |
 | agent 的回复复述工具结果 | `buildSkillInitMessage()` 的汇报约束是否被删；正常应只做 1–3 句总结 |
 | `/skill-init` 注入后没有后续 | `toolReady` 是否在工具注册前被读成 `false`（必须惰性）；`ctx.get("tools")` 是否可用 |
-| `/handoff` 加载失败 | `readFallback` 是否还在；技能是否标了 `disable-model-invocation` |
+| `/handoff` 加载失败 | `readFallback` 是否还在；旧版技能是否还标着 `disable-model-invocation`（上游 #51 已移除） |
 | `/skill-init` 看不到过程/结果 | 是否注册了 `skill_init` 工具；`ctx.get("tools")` 是否可用；是否走了本地回退 |
 | `/skill-init` 有变更却没弹确认 | `skill-confirm.js` 的 `needsConfirmation()`；`ctx.userQuestions` 是否可用；是否带了 `--yes` 或 `--update` |
 | `/git-*` 提示技能未安装 | 依赖技能是否在 `$DSH_HOME/skills` / `$DSH_AGENTS_HOME/skills` / `~/.agents/skills`；先跑 `/skill-init`，或按回执里的 `npx` 命令手工装 |
 | 确认卡住/工具不返回 | `skill_init` 的 `confirm` 是否在无问答能力时返回 `plan`；是否只有 `ASK_CANCELLED` 才取消 |
-| 契约校验失败 | 技能是否安装、`DSH_HOME` 是否指向正确技能根、agent-skills 是否改了分支名 |
+| 契约校验失败 | 技能是否安装（`$DSH_HOME/skills` / `$DSH_AGENTS_HOME/skills` / 本源都查过）、agent-skills 是否改了分支名；根顺序可用 `smoke-skill-contract.mjs` 复现 |
 
 ## 9. 相关文档
 

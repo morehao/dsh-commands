@@ -7,11 +7,32 @@
 
 **任意来源的技能安装不在命令面**：dsh 会扫描 canonical `~/.agents/skills`，所以 `npx -y skills add <来源> --skill <名称> -g -a universal -y` 就够了，交给用户或 agent 直接执行（见 [额外技能](#额外技能不再由插件安装)）。插件只负责自己依赖的 `git-kit`、`handoff`、`disk-cleanup`。
 
-- 实现：`lib/skill-command.js`（命令 flags / 注入 / 回退）、`lib/tool-skill-init.js`（工具 execute / 结果）、`lib/skill-confirm.js`（确认）、`lib/skill-setup.js`（plan + 安装 / 软链 / 校验）、`lib/skill-cache.js`（来源缓存 / lock 回写）、`lib/skill-paths.js`（路径）、`lib/text.js`（输出清洗）、`lib/proc.js`（子进程）；长任务包装在 `lib/job-progress.js`，进度/停止由 dsh 原生作业 UI 提供（见 [过程可见](./job-progress.md)）。
+- 实现：`lib/skill-command.js`（命令 flags / 注入 / 回退）、`lib/tool-skill-init.js`（工具 execute / 结果）、`lib/skill-confirm.js`（确认）、`lib/skill-setup.js`（plan + 安装 / 软链 / 校验）、`lib/skill-cache.js`（来源缓存 / lock 回写）、`lib/skill-paths.js`（路径与技能根顺序）、`lib/text.js`（输出清洗）、`lib/proc.js`（子进程）；长任务包装在 `lib/job-progress.js`，进度/停止由 dsh 原生作业 UI 提供（见 [过程可见](./job-progress.md)）。
 - 工具与回退共用一次 `planOperation()`：本地判定「要不要建作业 / 处理哪些技能 / 是否已最新」，`applyPlan` 只负责执行。同一条规则只有一处实现。
 - 无 `tools`、无 `agent.followup` 或注入失败时，命令回退到 `runSkillInit` / `runSkillUpdate`（本地执行，语义相同，但没有确认卡与工具结果）。
 - 依赖集合仍从 `COMMANDS` 推导（`skill ?? "git-kit"` 去重，导出为 `REQUIRED_SKILLS`），新增委托型命令后自动跟进。
-- 委托型命令执行前会先查依赖技能是否在 `$DSH_HOME/skills`、`$DSH_AGENTS_HOME/skills` 或 canonical `~/.agents/skills`；缺失时不注入消息，直接返回 `/skill-init` 与手工 `npx` 两条修复路径。
+- 委托型命令执行前会先查依赖技能是否在 `skillRoots()` 给出的三个根：`$DSH_HOME/skills` → `$DSH_AGENTS_HOME/skills` → 本源 `~/.agents/skills`；缺失时不注入消息，直接返回 `/skill-init` 与手工 `npx` 两条修复路径。
+
+## 与 agent-skills 的发布链同向
+
+agent-skills 自 2026-10-23（#50）起把模型定为「本源 + 分发软链」：
+
+```
+agent-skills 仓（编辑源）
+  │ ./scripts/skills-install.sh（skills CLI 安装）
+  ▼
+本源 ~/.agents/skills（真实内容）
+  │ ./scripts/skills-fanout.sh
+  ▼
+~/.config/opencode/skills/*、$DSH_HOME/skills/*（只放软链）
+```
+
+本插件的 `/skill-init` 做的是同一件事（只是只针对它依赖的三个技能）：用 `skills add -g -a universal` 把内容装到本源，再建 `$DSH_HOME/skills/<name>` → 本源的软链。两边共用 skills CLI 与 `.skill-lock.json`，所以：
+
+- 已经跑过上游两个脚本的机器，`/skill-init` 会判定为已托管并跳过，不会覆盖或重装；
+- 只跑过 `skills-install.sh`、还没 fanout 的机器，dsh 仍能直接扫本源，命令可用；`/skill-init` 会把软链层补成托管（有写盘时先确认）；
+- 反过来，`/skill-init` 装好的技能，上游 `skills-fanout.sh` 也认（软链目标同样是本源），不会重复；
+- 契约校验（`scripts/check-skill-contract.mjs`）与运行期预检共用这份根顺序，不会再因为「没有软链层」误报技能缺失。
 
 ## 执行前确认与结果
 
@@ -35,24 +56,24 @@
 
 ## 软链的作用（以及为什么不是加载必需）
 
-dsh **不从 `node_modules` 扫描技能**。它默认扫描项目与用户技能根：用户侧是 `$DSH_HOME/skills`（rank 400，默认 `~/.dsh/skills`）与 `~/.agents/skills`（rank 500）。`skills add -g -a universal` 写的正是后者，所以**仅为了让 dsh 看见，软链不是必需的**；额外技能也不需要软链。
+dsh **不从 `node_modules` 扫描技能**。它默认扫描项目与用户技能根：用户侧是 `$DSH_HOME/skills`（rank 400，默认 `~/.dsh/skills`）与本源 `~/.agents/skills`（rank 500）。`skills add -g -a universal` 写的正是后者，所以**仅为了让 dsh 看见，软链不是必需的**；额外技能也不需要软链。
 
 本插件仍为依赖技能建 `~/.dsh/skills/<name>` → `~/.agents/skills/<name>` 的软链，原因有三：
 
-1. rank 400 优先于 canonical 的 500，同名旧副本不会抢先；
-2. 用 `target === canonical` 判定「托管 / 非托管」，才能安全地修复软链、拒绝覆盖真实目录；
+1. rank 400 优先于本源的 500，同名旧副本不会抢先；
+2. 用 `target === 本源` 判定「托管 / 非托管」，才能安全地修复软链、拒绝覆盖真实目录；
 3. dsh 自定义 `$DSH_AGENTS_HOME` 时，`$DSH_HOME/skills` 仍是稳定入口。
 
-> 这正是「软链层是否退役」的前提；在迁移与遮蔽检查就位前不要删。
+> 这正是「软链层是否退役」的前提；在迁移与遮蔽检查就位前不要删。上游 `skills-fanout.sh` 建的是同方向、同目标的软链，两边可以共存。
 
-官方 `skills` CLI（vercel-labs/skills）支持 80+ agent，但不认识 dsh 的 `$DSH_HOME`：它只能把技能取到 canonical `~/.agents/skills`。dsh 也会扫这个根，但本插件仍建链，以保留上面的优先级与托管判定。实际链路：
+官方 `skills` CLI（vercel-labs/skills）支持 80+ agent，但不认识 dsh 的 `$DSH_HOME`：它只能把技能取到本源 `~/.agents/skills`（上游 `skills-install.sh` 也发布到这里）。dsh 也会扫这个根，但本插件仍建链，以保留上面的优先级与托管判定。实际链路：
 
 ```
 skills add <本地缓存> --skill <缺的> -g -a universal -y --json
    ├─ 首次：git clone --depth 1 <来源> → $DSH_HOME/cache/skills-sources/<hash>
    ├─ 之后：git fetch --depth 1（默认 10 分钟内直接跳过网络）
-   └─ ~/.agents/skills/<name>            # CLI 的 canonical 拷贝 + lock 记录
-        ↑ 软链（本插件创建）
+   └─ ~/.agents/skills/<name>            # 本源的拷贝 + lock 记录
+        ↑ 软链（本插件创建；上游 skills-fanout.sh 建同样的链）
    ~/.dsh/skills/<name>                  # dsh 扫描的技能根
 ```
 
@@ -150,7 +171,7 @@ npx -y skills add morehao/agent-skills …
 | 选了「只补缺失」 | 只装 `state=missing` 的条目，已有条目不动（远端缓存仍可能 fetch 以拿到缺失技能） |
 | 同名位置是真实目录 | 该技能报「拒绝覆盖」，其余照常；回执末尾提示它会遮蔽 canonical 的托管版本 |
 
-顺带校验分支契约（`git-kit` 的 9 个分支文件、`disk-cleanup` 的 `cleanup` 分支；`handoff` 是单分支，只校验 `SKILL.md`），结束提示「无需重启 dsh」。
+顺带校验分支契约（`git-kit` 的 9 个分支文件、`disk-cleanup` 的 `cleanup` 分支；`handoff` 是单分支，只校验 `SKILL.md`），技能根按 `skillRoots()` 解析（`$DSH_HOME/skills` → `$DSH_AGENTS_HOME/skills` → 本源），**只有本源、没有软链层时也能通过**；结束提示「无需重启 dsh」。
 
 确定要写盘（安装/替换软链、真实目录仍需装 canonical）时工具先弹一次确认，取消则什么都不做；有缺失时可以选「只补缺失」走最短路径。`/skill-init --yes` 跳过确认。缓存过期只触发只读检查，不弹确认、也不写盘。
 

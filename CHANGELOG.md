@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### 修复
+
+- **契约校验改用与运行期预检同一组技能根**：`scripts/check-skill-contract.mjs` 现在走 `skillRoots()`（`$DSH_HOME/skills` → `$DSH_AGENTS_HOME/skills` → 本源 `~/.agents/skills`）。agent-skills #50 把本源定为真实内容、`$DSH_HOME/skills` 只是 `skills-fanout.sh` 建的软链层；旧脚本只看软链层，在「已发布本源、还没 fanout」的机器上会把 11 条命令全判成技能缺失。缺技能改为按技能去重报一次，并列出查过的所有路径。
+- **新增 `scripts/smoke-skill-contract.mjs`**：临时 HOME 下覆盖四类技能根（只有本源 / 只有 `$DSH_HOME/skills` / 只有 `$DSH_AGENTS_HOME/skills` / 软链层指向本源）、缺分支文件与缺技能去重；已并入 `npm test` 与 CI。
+
+### 变更
+
+- **`/handoff` 的 read 兜底改为历史兼容**：agent-skills #51 移除了 `handoff` 的 `disable-model-invocation`，技能恢复模型可见、可自行触发。`readFallback` 保留给装了旧版技能目录的机器，注入文案不再断言「该技能标了该标记」，并补上本源路径（`$DSH_HOME/skills` 不存在时读 `~/.agents/skills`）。
+- **`/cleanup` 描述同步 disk-cleanup #52**：说明报告区分「目录总量 / 本次可删量」、清理前先 dry-run 复核、sudo 项交用户终端；`confirm` 明确清理项编码走 `--only`。
+- **文档口径对齐「本源 + 分发软链」**：README / 技能自举 / 架构 / agent 手册说明 `/skill-init` 与 agent-skills 的 `skills-install.sh` + `skills-fanout.sh` 同向（共用 skills CLI 与 `.skill-lock.json`），并修正冒烟数量与 CLI 注释。
+
 ## [v0.3.0] - 2026-10-25
 
 ### 破坏性变更

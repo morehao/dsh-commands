@@ -38,7 +38,7 @@
 ### 命令注册
 
 - 命令描述直接写中文；dsh 不向第三方提供描述 i18n 钩子，不要为此加 `locale` 键。
-- `required` / `hint` 决定缺失参数的用法回执；`noInput` 承载无参数专门语义，`confirm` 承载需用户决策事项，`readFallback` 用于 `disable-model-invocation` 的技能。改这些字段前读 [命令契约](docs/agents/command-contract.md)。
+- `required` / `hint` 决定缺失参数的用法回执；`noInput` 承载无参数专门语义，`confirm` 承载需用户决策事项，`readFallback` 是 `disable-model-invocation` 技能的 read 兜底（当前仅 `handoff`，属旧安装兼容）。改这些字段前读 [命令契约](docs/agents/command-contract.md)。
 - 新增/删除委托型命令后，`REQUIRED_SKILLS` 会自动从 `COMMANDS` 推导；不要维护第二份技能清单。
 
 ### 包与发布

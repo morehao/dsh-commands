@@ -9,7 +9,7 @@
 |---|---|---|
 | `lib/skill-setup.js` | plan、安装、软链、契约校验、回执 | 不直接碰 `ctx.jobs`；不复制缓存/路径逻辑 |
 | `lib/skill-cache.js` | 来源浅克隆、TTL、lock 回写 | 不决定「要不要建作业」 |
-| `lib/skill-paths.js` | `DSH_HOME` / agents home / canonical / lock 路径 | 不让调用方各自拼路径 |
+| `lib/skill-paths.js` | `DSH_HOME` / agents home / 本源 / lock 路径；`skillRoots()` 是技能根顺序的唯一真源 | 不让调用方各自拼路径 |
 | `lib/proc.js` | 子进程 timeout / abort / 输出上限 | 不经 shell 拼命令 |
 | `lib/text.js` | ANSI / 框线 / spinner 清洗、tail 截断 | 不加业务语义 |
 | `lib/job-progress.js` | 把 work 挂到 `ctx.jobs`、`wait` 收尾、降级 | 不含技能逻辑 |
@@ -42,15 +42,16 @@
 ## 3. 必须保持的不变量
 
 - **不做备份、不删真实目录**：覆盖旧条目时只 unlink 旧软链（含悬空软链）；遇到同名真实目录/文件直接报错，让用户自己移走。
-- **软链是托管判定层**：`~/.dsh/skills/<name>` → `~/.agents/skills/<name>`；用 `target === canonical` 判断托管/非托管。不要为了「省一步」删掉软链层。
-- **canonical 固定 `~/.agents/skills`**：`skills` CLI 的 universal 全局落点硬编码为 `homedir()/.agents/skills`；不要改成 `$DSH_AGENTS_HOME`，否则 CLI 仍写 canonical，插件会找不到。
+- **软链是托管判定层**：`~/.dsh/skills/<name>` → 本源 `~/.agents/skills/<name>`；用 `target === canonical` 判断托管/非托管。不要为了「省一步」删掉软链层。
+- **本源固定 `~/.agents/skills`**：`skills` CLI 的 universal 全局落点硬编码为 `homedir()/.agents/skills`；不要改成 `$DSH_AGENTS_HOME`，否则 CLI 仍写本源，插件会找不到。
+- **技能根顺序只有一处**：`skillRoots()`（`$DSH_HOME/skills` → `$DSH_AGENTS_HOME/skills` → 本源）。运行期预检与 `scripts/check-skill-contract.mjs` 都必须用它；上游 #50 之后本源才是真实内容，软链层可能不存在，任何「只看 `$DSH_HOME/skills`」的判定都会误报未安装。
 - **lock 来源回写**：`skills add <本地缓存>` 会把 lock 写成 local；安装后必须回写 `source` / `sourceType` / `sourceUrl` / `skillPath` / `skillFolderHash`，否则其他 agent 的 `npx skills update` 认不出远端。
 - **单一写入锁**：同一 `DSH_HOME` + canonical 目录同时只允许一个技能写操作；第二次直接拒绝，不并行 clone。
 - **`-a universal` 必须显式给**；不要用 `skills update`（内部 spawn 可能装到所有 agent 目录），`--update` 也用 `add`。
 - **确认只看「是否确定要写盘」**：`plan.confirm.needs`（install/relink）才问；缓存过期只做只读探针，不提问。`yes=true` 完全跳过确认，但**不跳过**所有权、真实目录、指纹检查。无 `userQuestions`/活 agent 或确认通道异常 → 工具返回 `status:"plan"`、零写（不再 pass-through 执行）；只有 `ASK_CANCELLED` / `ASK_ABORTED` 才算用户取消。
 - **写盘范围只由 plan 决定**（`installTargets()`）：运行时 `checkSourceSkills()` 发现的上游更新**只报告、不安装**（回执给 `--update` 指引）。不要图省事把 `check.changed` 并进 `toInstall`——那会在用户没确认的情况下覆盖写，破坏「只由写盘触发确认」。
 - **choice 只影响执行范围，不改变 plan**：`只补缺失` 把非 missing 的 install/relink 降级为 skip，`applyPlan` 只写 missing 条目；旧命令回退用 `runSkillInit({choice:"missing"})`。
-- **任意来源安装不在本插件内**：dsh 扫描 canonical `~/.agents/skills`，额外技能用 `npx -y skills add <来源> --skill <名称> -g -a universal -y`，不需要软链，也不要重新引入 `/skill-install` 式的四路并集逻辑。
+- **任意来源安装不在本插件内**：dsh 扫描本源 `~/.agents/skills`，额外技能用 `npx -y skills add <来源> --skill <名称> -g -a universal -y`，不需要软链，也不要重新引入 `/skill-install` 式的四路并集逻辑。
 
 ## 4. 缓存与 TTL
 

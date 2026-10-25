@@ -8,7 +8,7 @@ host 没有构建步骤，源码即产物（纯 ESM）；唯一运行时依赖�
 |---|---|
 | `lib/index.js` | 意图表 `COMMANDS`、`/skill-init` 元数据、`apply()` 注册命令与工具 |
 | `lib/skill-setup.js` | `/skill-init`（含 `--update`）的 plan、安装、软链、校验 |
-| `lib/skill-paths.js` | `$DSH_HOME` / `$DSH_AGENTS_HOME` / lock 路径解析 |
+| `lib/skill-paths.js` | `$DSH_HOME` / `$DSH_AGENTS_HOME` / 本源 / lock 路径解析，以及统一的技能根顺序 `skillRoots()` |
 | `lib/skill-cache.js` | 来源浅克隆缓存、TTL、lock 回写 |
 | `lib/text.js` | ANSI 清洗、spinner 折叠、尾部截断 |
 | `lib/proc.js` | 子进程 timeout / abort / 输出上限 |
@@ -41,19 +41,22 @@ host 没有构建步骤，源码即产物（纯 ESM）；唯一运行时依赖�
 node scripts/check-skill-contract.mjs
 ```
 
-它逐条检查 `$DSH_HOME/skills/<skill>/references/<branch>.md` 是否存在（单分支技能只校验 `SKILL.md` 存在，如 `/handoff` 的 `print`）。技能改分支名而插件没跟，就是在这里暴露的。技能目录默认 `~/.dsh/skills`，可用 `DSH_HOME` 覆盖；技能未安装时先 `/skill-init`。
+它按 `skillRoots()` 的顺序找技能（`$DSH_HOME/skills` → `$DSH_AGENTS_HOME/skills` → 本源 `~/.agents/skills`，与委托型 handler 的预检完全一致），命中后检查 `references/<branch>.md` 是否存在（单分支技能只校验 `SKILL.md` 存在，如 `/handoff` 的 `print`）。缺技能按技能去重报一次，并列出所有查过的路径。技能改分支名而插件没跟，就是在这里暴露的。
 
-CI 默认不跑契约校验——它依赖另一仓的技能目录。
+上游自 #50 起「本源才是真实内容、`$DSH_HOME/skills` 只是 fanout 软链层」，所以只发了本源、没建链的机器也能通过；反之，装了软链但本源缺失时，会按实际目录校验。技能未安装时先 `/skill-init`。
+
+CI 默认不跑契约校验——它依赖另一仓的技能目录；根顺序与失败输出由 `smoke-skill-contract.mjs` 在临时 HOME 里覆盖。
 
 ## 冒烟测试
 
 ```bash
-npm test                             # 等价于下面五个冒烟（CI 也只调这一个入口）
+npm test                             # 等价于下面六个冒烟（CI 也只调这一个入口）
 node scripts/smoke-skill-setup.mjs   # stub CLI：安装/软链/并发/超时/作业/命令回退
 node scripts/smoke-skill-plan.mjs    # observe/plan：所有权、缺失、真实目录、控制台记录
 node scripts/smoke-skill-tool.mjs    # skill_init：确认/写盘/停止/指纹/结果矩阵
 node scripts/smoke-skill-command.mjs # /skill-init：flags、注入消息、source.kind、回退
 node scripts/smoke-skill-cache.mjs   # 本地 git 源：cache/TTL/refresh/离线/lock 回写
+node scripts/smoke-skill-contract.mjs # 契约校验：技能根顺序 / 缺分支 / 缺技能去重（临时 HOME）
 ```
 
 `smoke-skill-plan` 用临时 HOME 覆盖 observe/plan 的 15 种组合；`smoke-skill-tool` 用假 jobs/asker 覆盖工具的完整矩阵与交互不变量；`smoke-skill-command` 只测命令层，不启动 dsh。
@@ -69,6 +72,8 @@ node scripts/smoke-skill-cache.mjs   # 本地 git 源：cache/TTL/refresh/离线
 
 `smoke-skill-cache` 用临时 git 源验证首次 clone、TTL 命中、refresh 更新、`ttl<0` 离线、fetch 失败回退、`--json` 解析与 lock 来源/40 位 git tree hash 回写（24 项，不联网）。
 
+`smoke-skill-contract` 在临时 HOME 里铺技能目录，覆盖契约校验的两类行为：技能根顺序（只有本源 / 只有 `$DSH_HOME/skills` / 只有 `$DSH_AGENTS_HOME/skills` / 软链层指向本源都算已安装）与失败输出（缺 `references/<branch>.md`、缺技能按技能去重并列出查过的路径）。它 spawn 真实脚本，不联网。
+
 改动 `lib/job-progress.js` 前先读 `scripts/smoke-skill-setup.mjs` 顶部注释：它记录了「为什么只能用 `wait` 收尾」以及 dsh 侧的行号证据。
 
 ## CI
@@ -80,7 +85,7 @@ node scripts/smoke-skill-cache.mjs   # 本地 git 源：cache/TTL/refresh/离线
 - Release 正文投影：`npm run check:release-notes`（注记 tag → Release body）；
 - 包名 / 模块标识符 / 插件名三处一致：`npm run check:naming`；
 - 打包内容白名单：`npm run check:pack`（防止 `.dsh/` 草稿、`node_modules`、`*.tgz` 混进 npm tarball）；
-- 五个离线冒烟：`npm test`（技能自举 + plan + 工具 + 命令 + 缓存）。
+- 六个离线冒烟：`npm test`（技能自举 + plan + 工具 + 命令 + 缓存 + 契约校验）。
 
 本地 `npm run check` = 上面除 `bash -n` 外的全部（`check:contract` 不在其中，它依赖另一仓的技能目录）。
 
