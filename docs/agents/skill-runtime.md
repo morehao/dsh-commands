@@ -14,6 +14,7 @@
 | `lib/text.js` | ANSI / 框线 / spinner 清洗、tail 截断 | 不加业务语义 |
 | `lib/job-progress.js` | 把 work 挂到 `ctx.jobs`、`wait` 收尾、降级 | 不含技能逻辑 |
 | `lib/confirm.js` | 执行前的 `ctx.userQuestions` 确认、按 plan 生成选项、`--yes`/不可用降级 | 不执行安装、不碰 `ctx.jobs` |
+| `lib/tool-skill-init.js` | `skill_init` 工具定义（参数/结果 schema/markdown）与 execute 编排；纯定义，不 import `@deepseek-ai/*` | 不复制 observe/plan/apply；不在 `execute` 外解析服务 |
 
 ## 2. 调用链
 
@@ -27,6 +28,18 @@
 6. 结算：`run*` 首行是结论式 `✓/✅/⚠`，handler 把「过程：作业 …」放到第二行，并在有作业时给首行加 `· 后台作业` 标记；无事可做时首行仍是结论，第二行解释为什么没有作业。
 
 `plan` 只算一次是硬约束：handler 与 run 各算一遍会产生两套 skip 文案和不一致的判定。
+
+### 2.1 工具链路
+
+`skill_init`（`lib/tool-skill-init.js`）复用同一核心，`execute` 顺序固定：
+
+1. `referencedSkills(commands)` 校验 `names`：未知技能直接 `attention`，零写。
+2. `observeSkills()` → `planOperation()`；无写盘且无需只读探针（`check` / 已就绪 / 纯 blocked / 纯 warn）直接出结论。
+3. 有写盘且未 `yes`：`confirmSkillPlan()` 用 plan markdown 做 detail；无 `userQuestions`/agent 或确认通道异常 → 返回 `status:"plan"`，零写（**不 pass-through**）。`只补缺失` 会把非 missing 的 install/relink 降级为 skip。
+4. 写前再 `observe` 一次做指纹（只比涉及技能的链状态/目标/canonical 存在性）；变化 → `attention`，整次中止。
+5. `runInJob({ owner: exec.agent?.session?.id, kind: "skill-init", skip, work })`：work 内先只读探针（缓存过期时），再 `applyPlan`。
+6. 复核：`verifyPlan` 比对 canonical/links/state；结果状态优先级：probeError/失败/verify 问题 → `attention`；blocked 且未写 → `blocked`；有写 → `changed`；否则 `ok`。
+7. 停止/取消：`runInJob` 返回 `killed` → `status:"cancelled"`，不误报成功。
 
 ## 3. 必须保持的不变量
 
@@ -68,7 +81,7 @@
 - host 命令面没有进度通道；过程走 `ctx.jobs`：`reporter.progress()` 更新作业行，`reporter.write()` 写面板。web client half（`lib/client.js`）再把 `ctx.jobs` 快照渲染回命令卡，并在作业结算时补完成提示（当前会话也弹，切走时才额外标未读）。
 - **必须 `wait()` 到终态**：`runInJob` 自己切片 `jobs.wait()`，保持 `awaited=true`，结算不投完成通知、不唤醒模型回合。不要改成订阅事件收尾。
 - 作业结束前写一条 `完成：<结论首行>` 的 progress，结算后作业行仍能看到最终结论；但因为 `awaited`，**不会**再投一条完成通知——这是有意的零 token 取舍。
-- 取消只终止子进程，不提前结束等待；`signal` 中止 → `jobs.kill`，最终返回 `{ killed: true }`。
+- 取消只终止子进程，不提前结束等待；`signal` 中止 → `jobs.kill`，最终返回 `{ killed: true }`。生产者用 `cancel` 标志决定结算成 `killed` 还是 `failed`：用户停止时 `cancel()` 已置位，`work` 抛出的错误必须记 `killed`（否则 `jobs-local` 的终态是 `failed`，`killed` 分支不可达）。
 - `ctx.jobs` 缺失、无控制器、并发上限、无 owner：退回直接执行（`NO_REPORTER`），语义不变；`apply` 不把 `jobs` 写进 `inject`。
 - 无事可做时 `plan.skipReason` 有值：不建作业，但工作仍以无 reporter 跑一遍（幂等修复）；这类路径没有作业事件，完成感由命令卡的 `无变更` 态 + 回执第二行承担。
 - **每条出口都要 `reportOutcome()`**：本地命令的结果要交给会话，否则等于"执行了但什么都没发生"。默认用 `agent.followup()` 发一条 `source.kind: "cordis-host-runner"`、`form: "notice"` 的**执行报告 + 复核指令**：dsh 的会话 `blank` 只由 `turn/start` 解除（`applySessionListMetadata`），命令事件和 `inject()` 都不算，所以不唤醒一轮，空会话里连卡片都没有落点。**改用 `inject()` 前先读这条**：它只记录、不解除 blank，只适合「取消」这类用户刚刚亲手做过动作的出口。复核指令要求 agent 不复述命令卡内容：正常只回「无异常」，有需处理事项才列 ≤3 条下一步；不要改成「回报结论」，否则又变成卡与回答重复。

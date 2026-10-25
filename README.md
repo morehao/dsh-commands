@@ -58,6 +58,7 @@ dsh plugin --profile <profile> add @morehao/dsh-commands
 - 编辑技能内容（`$DSH_HOME/skills/...`）**无需重启**，下次执行即生效。
 - 委托型命令执行前会确认依赖技能是否已安装（`$DSH_HOME/skills`、`$DSH_AGENTS_HOME/skills` 或 `~/.agents/skills`）；缺失时不注入消息，直接返回 `/skill-init` 与手工 `npx` 两条修复路径。
 - 本地执行型命令 `/skill-init`（含 `--update`）不走 agent：确定要写盘时才通过 `ctx.userQuestions` 确认，执行过程走后台作业，回执首行给结论；`--yes` 跳过确认。
+- 同一执行核心也暴露为 `skill_init` 工具（`mode=init/update/check`、`names`、`yes`）：默认先确认；无确认通道时只返回计划、不写盘。当前版本 `/skill-init` 仍走本地命令，工具供 agent 直接调用。
 - 修改插件源码（含 `COMMANDS` 表）需重启 dsh web；只有以 `link:` 方式接入时才改源码即生效，npm 版是拷贝。
 - 命令描述直接写中文：dsh 目前不向第三方提供描述文本的 i18n 钩子。
 

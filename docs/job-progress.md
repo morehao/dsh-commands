@@ -149,6 +149,7 @@ host 的 `apply` 不把 `jobs` 写进 `inject`，所以没有 jobs 的组合照�
 ## 实现约束
 
 - `lib/skill-setup.js` 的 `planSkillOperation()` 与 init/update 两个 `run*` 只认 `reporter.progress` / `reporter.write`，不直接接触 `ctx.jobs`；这层适配全在 `lib/job-progress.js` 的 `runInJob` / `NO_REPORTER`。来源缓存与 lock 回写在 `lib/skill-cache.js`；输出清洗与子进程分别在 `lib/text.js` / `lib/proc.js`；执行前确认在 `lib/confirm.js`。
+- **停止必须由生产者结算成 `killed`**：`cancel()` 会置 `cancelled` 标志，`work` 因停止而抛错时按 `killed` 上报（而不是 `failed`）；否则 `jobs-local` 的终态与 `runInJob` 的 `{ killed: true }` 分支永远对不上。`skill_init` 工具与本地命令共用这套收尾。
 - `lib/client.js` 是 web client half（预打包 `window.__ModuleLoader__` bundle，不需要构建）：注册 `conversation.chat.commandview`、`shell.overlay`、`sidebar.session.row.leading` 三个槽；把 `ctx.jobs` 快照映射成卡片/提示/未读，不写 host 事件。
 - 失败回执会剥掉 ANSI、框线与 CLI 的 ASCII logo（`lib/text.js` 的 `tail()`），完整输出留在作业面板里；只保留最后 15 行、单行 240 字符、整段 1200 字符，避免 clack 的进度重绘把命令卡片撑到几十 KB。
 - 作业输出先去 ANSI 再旁路：面板是纯文本终端，不去色会把 `[38;5;250m` 之类转义码原样显示。

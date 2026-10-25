@@ -43,6 +43,7 @@ export const REQUIRED_SKILLS = Object.freeze(referencedSkills(COMMANDS));
 - 有可执行变更时，handler 先通过 `ctx.userQuestions` 让用户确认（`lib/confirm.js`），问题/选项按本次 plan 生成，确认结果以 `choice`（`all` / `missing`）传进 `run`；`--yes` 跳过，`--update` 显式更新不打断，无问答能力时降级直接执行；
 - web 端由 `lib/client.js` 接管命令卡（实时阶段/计时/日志/停止），并用 `shell.overlay` + 会话行未读点补离开会话后的完成感知；不新增 host 事件；
 - `run` 不再自己 inspect 技能或比对 hash，只执行 plan 与措辞；回执首行是 `✓/✅/⚠` 结论，第二行才是「过程：作业 …」。
+- `lib/tool-skill-init.js` 把同一套 `observe → plan → confirm → apply → verify` 暴露为 `skill_init` 工具：`lib/index.js` 在 `ctx.get("tools")` 可用且动态 `import("@deepseek-ai/dsh-tools")` 成功时注册（`apply` 因此是 async，但命令注册仍在第一个 `await` 之前同步完成）；旧宿主或 import 失败只跳过工具，命令回退不变。工具默认必须确认，无 `userQuestions` 且未显式 `yes=true` 时只返回 `plan`、零写；作业 `owner` 取 `exec.agent.session.id`。**P2 阶段 `/skill-init` 仍走本地命令，工具是增量入口。**
 
 ## 执行链路
 

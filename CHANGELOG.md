@@ -4,6 +4,8 @@
 
 ### 变更
 
+- **新增 `skill_init` 工具（P2；`/skill-init` 仍走本地命令，切换在后续版本）**：与命令共享 observe/plan/apply/verify；默认先确认，无 `userQuestions` 时只返回计划且零写；支持 `mode=init/update/check`、`names`、`yes`，未知技能直接拒绝、确认后指纹变化整次中止。工具在 `ctx.get("tools")` 可用时注册，旧宿主自动跳过。
+- **作业停止的结算修正**：用户停止时生产者现在标记 `killed`（`cancel` 标志），不再被记成 `failed`；此前 `runInJob` 的 `killed` 分支不可达。
 - **plan 已知的上游更新改为只警告、不重装**：`/skill-init` 的写盘集合只剩缺失/待修复项，`changed` 不再触发确认、不再在缓存命中时重装；回执首行仍给 `ℹ 无变更，上游有 N 项更新` 与 `--update` 指引。`/skill-init --update` 仍是唯一重装入口。
 
 本文件记录 `@morehao/dsh-commands` 的发布历史。`v0.1.0`–`v0.1.7` 由旧仓
