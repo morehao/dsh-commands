@@ -117,10 +117,12 @@ try {
 		resolveSkillSource,
 		probeUrlForSource,
 		probeSourceReachability,
-		planSkillOperation,
-		installTargets,
+		observeSkills,
+		planOperation,
 	} = await import("../lib/skill-setup.js");
 	const { COMMANDS } = await import("../lib/index.js");
+	const planNow = async (mode = "init", names = []) =>
+		planOperation(mode, { names }, await observeSkills(process.env, COMMANDS));
 	check(resolveSkillSource({}) === "morehao/agent-skills", "来源：默认 morehao/agent-skills");
 	check(
 		resolveSkillSource({ DSH_COMMANDS_SKILL_SOURCE: "acme/mirror" }) === "acme/mirror",
@@ -224,7 +226,7 @@ try {
 	check(text.includes("已托管，跳过"), "init 幂等：已托管技能跳过", text);
 	check(text.startsWith("✓ 无变更 ·"), "init 幂等：首行是结论式「无变更」", text);
 	check((await stubCalls()) === callsBefore, "init 幂等：未再次调用 CLI");
-	const idlePlan = await planSkillOperation("skill-init", COMMANDS, "");
+	const idlePlan = await planNow("init");
 	check(
 		idlePlan.skipReason === "已全部托管，无需安装",
 		"init：plan 给出短因（不复述回执结论）",
@@ -311,7 +313,7 @@ try {
 	const savedOverride = process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE;
 	delete process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE;
 	process.env.DSH_COMMANDS_SKILL_CLI = stub;
-	const legacyPlan = await planSkillOperation("skill-init", COMMANDS, "");
+	const legacyPlan = await planNow("init");
 	check(legacyPlan.freshness.cacheSource === false, "env：旧 CLI 变量名仍被识别（fallback）", JSON.stringify(legacyPlan.freshness));
 	if (savedOverride === undefined) delete process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE;
 	else process.env.DSH_COMMANDS_SKILL_CLI_OVERRIDE = savedOverride;
@@ -789,32 +791,8 @@ try {
 		JSON.stringify(changedOnlyPlan),
 	);
 
-	const pendingState = { name: "git-kit", state: "missing", isSymlink: false, isDirectory: false };
-	const unmanagedState = { name: "handoff", state: "unmanaged", isSymlink: true, isDirectory: false };
-	const plannedOnly = installTargets({ pending: [pendingState], freshness: {} });
-	check(
-		JSON.stringify(plannedOnly) === JSON.stringify(["git-kit"]),
-		"init：写盘集合 = 缺失/待修复项",
-		JSON.stringify(plannedOnly),
-	);
-	const plannedWithChanged = installTargets({
-		pending: [pendingState],
-		freshness: { fresh: true, changed: ["handoff", "disk-cleanup"] },
-	});
-	check(
-		JSON.stringify(plannedWithChanged) === JSON.stringify(["git-kit"]),
-		"init：上游更新不进写盘集合（只报告）",
-		JSON.stringify(plannedWithChanged),
-	);
-	const plannedFromStale = installTargets({ pending: [], freshness: { fresh: false, changed: undefined } });
-	check(
-		JSON.stringify(plannedFromStale) === JSON.stringify([]),
-		"init：缓存过期且 plan 无从得知 changed 时不写盘（运行时只报告）",
-		JSON.stringify(plannedFromStale),
-	);
-
 	// plan 已知更新 → 只报告、不重装、不调 CLI（重装走 --update）。
-	const managedNow = await planSkillOperation("skill-init", COMMANDS, "");
+	const managedNow = await planNow("init");
 	const changedPlan = {
 		...managedNow,
 		skipReason: undefined,
