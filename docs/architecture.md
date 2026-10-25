@@ -18,7 +18,7 @@
 }
 ```
 
-本地执行型命令是另一张表 `LOCAL_COMMANDS`，现在只有一个 `/skill-init`（`--update` 走同一命令的更新分支），见 [技能自举](./skill-setup.md)。它依赖的技能集合由 `COMMANDS` 推导：
+维护型委托命令只有 `/skill-init`（`--update` 走同一命令的更新分支），见 [技能自举](./skill-setup.md)。它依赖的技能集合由 `COMMANDS` 推导：
 
 ```js
 export const REQUIRED_SKILLS = Object.freeze(referencedSkills(COMMANDS));
@@ -26,33 +26,29 @@ export const REQUIRED_SKILLS = Object.freeze(referencedSkills(COMMANDS));
 
 新增/删除委托型命令后，技能自举与 `--update` 自动跟进，不需要维护第二份清单。
 
-`LOCAL_COMMANDS` 的每条声明包含 `plan` / `label` / `run` 三个函数：
+`/skill-init` 不在本地执行：handler 解析 `--update` / `--yes` / 技能名，构造一条 **`source.kind: "user"`** 的消息注入当前会话，让 agent 调用 `skill_init` 工具（实现在 `lib/skill-command.js`）。命令卡只返回一行「已开始检查依赖技能 / 已开始更新依赖技能」。
 
-```js
-{
-  plan: (commands, input, options) =>
-    planSkillOperation(options.update ? "skill-update" : "skill-init", commands, input, options),
-  label: (_input, plan) => plan?.kind === "skill-update" ? "更新技能：…" : "检查依赖技能（…）",
-  run: (commands, input, options) =>
-    options.update ? runSkillUpdate(commands, input, options) : runSkillInit(commands, options),
-}
-```
+`lib/tool-skill-init.js` 是 `skill_init` 的纯定义：`lib/index.js` 在 `ctx.get("tools")` 可用且动态 `import("@deepseek-ai/dsh-tools")` 成功时注册（`apply` 因此是 async，但命令注册仍在第一个 `await` 之前同步完成）；旧宿主或 import 失败只跳过工具，命令回退不变。
 
-- `plan` 只做本地判定（不联网）：要不要建作业、处理哪些技能、是否已最新；
-- handler 把 `plan` 的结果同时用于 `runInJob.skip`、`run({ plan })` 与作业 label，所以同一条规则只算一次；
-- 有可执行变更时，handler 先通过 `ctx.userQuestions` 让用户确认（`lib/confirm.js`），问题/选项按本次 plan 生成，确认结果以 `choice`（`all` / `missing`）传进 `run`；`--yes` 跳过，`--update` 显式更新不打断，无问答能力时降级直接执行；
-- web 端由 `lib/client.js` 接管命令卡（实时阶段/计时/日志/停止），并用 `shell.overlay` + 会话行未读点补离开会话后的完成感知；不新增 host 事件；
-- `run` 不再自己 inspect 技能或比对 hash，只执行 plan 与措辞；回执首行是 `✓/✅/⚠` 结论，第二行才是「过程：作业 …」。
+工具的 execute 顺序固定：
+
+1. `observeSkills()` 读取本机 canonical / 软链 / lock / 控制台记录；
+2. `planOperation()` 只做本地判定：写盘范围（缺失/修链）、上游已知更新只 warn、控制台所有权；
+3. 有写盘且未 `yes` 时 `confirmSkillPlan()`：无 `userQuestions` 或确认通道异常只返回 `plan`、零写；`只补缺失` 会把非 missing 的 install/relink 降级；
+4. 写前再 observe 一次做指纹，涉及技能的链/canonical 变了就整次中止；
+5. `runInJob()` 把 `probeUpstream`（缓存过期时）与 `applyPlan` 挂到 dsh 后台作业；`owner` 取 `exec.agent.session.id`；
+6. `verifyPlan()` 复核 canonical/links/state，结果里给 `status` / `actions` / `contract` / `verification` / `next` / `markdown`。
+
+命令与工具共用 `lib/skill-setup.js` 的 observe/plan/apply/verify；无 `tools`、无 `agent.followup` 或注入失败时，handler 回退到 `runSkillInit` / `runSkillUpdate`（本地执行，无 agent 回合），保证旧宿主不丢功能。
 
 ## 执行链路
 
-1. 用户从斜杠菜单执行命令，进入 `makeHandler(def)`。
-2. handler 校验必填输入（`required`），缺失时返回 `Usage: /<name> <hint>` 示例。
-3. 预检依赖技能（`$DSH_HOME/skills`、`$DSH_AGENTS_HOME/skills` 或 canonical `~/.agents/skills`）；缺失时不注入委托，直接返回 `/skill-init` 与手工 `npx` 两条修复路径。
-4. `buildInstruction(def, input)` 生成一段委托指令。
-5. 指令被包装成一条 **user 消息**，通过 `invocation.agent.followup()` 注入当前会话。
-6. agent 用 `skill` 工具加载对应 skill，把本次请求视为 `branch` 分支，按该分支的完整流程执行；需要用户决策（候选分支名 / PR·MR 编号 / tag 版本号 / 交接范围等）时先确认。
-7. 命令卡片返回 `已按 <skill> <branch> 分支委托执行…` 的结算文案。
+1. 用户从斜杠菜单执行命令，进入 `makeHandler(def)`（委托型）或 `makeSkillInitHandler()`（维护型）。
+2. 委托型：handler 校验必填输入（`required`），缺失时返回 `Usage: /<name> <hint>` 示例；随后预检依赖技能（`$DSH_HOME/skills`、`$DSH_AGENTS_HOME/skills` 或 canonical `~/.agents/skills`），缺失时不注入委托，直接返回 `/skill-init` 与手工 `npx` 两条修复路径。`/skill-init` 自己就是安装器，不做技能预检。
+3. `buildInstruction(def, input)`（或 `buildSkillInitMessage()`）生成一段委托指令。
+4. 指令被包装成一条 **user 消息**，通过 `invocation.agent.followup()` 注入当前会话。
+5. 委托型命令由 agent 用 `skill` 工具加载对应 skill，把本次请求视为 `branch` 分支执行；`/skill-init` 由 agent 调用 `skill_init` 工具，确认/进度/停止都在工具里。
+6. 命令卡片返回一行结算文案（`已按 … 委托执行…` / `已开始检查依赖技能`）。
 
 user 消息由 `userMessage()` **手工构造**，形态与官方 `createUserMessage` 的契约一致（`role` / `source` / `content` / `id` 齐全，深冻结），因此本模块不依赖任何 `@deepseek-ai/*` 运行时 import。`source` 字段必填——dsh 的 Message 契约会读 `message.source.kind`，缺失会在 agent 回合崩溃。
 
@@ -78,7 +74,7 @@ user 消息由 `userMessage()` **手工构造**，形态与官方 `createUserMes
 
 这不影响聊天区的命令行显示：`GenericCommandCard` 只渲染命令名与结算文案，不渲染 `args`。
 
-本地执行型命令相反，注册 `recordInput: true`：它的输入只是可选的技能名（`--update` 时），没有别的权威事件承载这份 payload。
+`/skill-init` 也注册 `recordInput: false`：输入已经逐字写进注入的 user 消息；回退路径没有注入，但同一次用户输入仍由命令行本身可见，不需要再记一份 `args`。
 
 ## 描述文本不做 i18n（有意为之）
 

@@ -1,30 +1,37 @@
 # 技能依赖自举
 
-`/skill-init` 不是「意图表」：它要判断文件状态、建软链、拉上游，结果必须确定，所以直接在 handler 内执行，不交给 agent。一个命令两个模式：
+`/skill-init` 是**维护型委托**：命令本身只解析参数、注入一条 user 消息，由 agent 调用 `skill_init` 工具；工具内部完成 observe → plan → confirm → apply → verify。一个命令两个模式：
 
 - `/skill-init`：检查并按需安装/修复插件依赖的技能；
 - `/skill-init --update [技能名...]`：强制更新到上游最新（显式更新，不弹确认）。
 
 **任意来源的技能安装不在命令面**：dsh 会扫描 canonical `~/.agents/skills`，所以 `npx -y skills add <来源> --skill <名称> -g -a universal -y` 就够了，交给用户或 agent 直接执行（见 [额外技能](#额外技能不再由插件安装)）。插件只负责自己依赖的 `git-kit`、`handoff`、`disk-cleanup`。
 
-- 实现：`lib/skill-setup.js`（plan + 安装 / 软链 / 校验）、`lib/confirm.js`（执行前确认 / `--yes` 降级）、`lib/skill-cache.js`（来源缓存 / lock 回写）、`lib/skill-paths.js`（路径）、`lib/text.js`（输出清洗）、`lib/proc.js`（子进程）；长任务的过程包装在 `lib/job-progress.js`，web 端的命令卡/完成提示在 `lib/client.js`（见 [过程可见](./job-progress.md)）。
-- init / update 两个模式共用一次 `planSkillOperation()`：本地判定「要不要建作业 / 处理哪些技能 / 是否已最新」，`run*` 只负责执行。同一条规则只有一处实现。
+- 实现：`lib/skill-command.js`（命令 flags / 注入 / 回退）、`lib/tool-skill-init.js`（工具 execute / 结果）、`lib/skill-confirm.js`（确认）、`lib/skill-setup.js`（plan + 安装 / 软链 / 校验）、`lib/skill-cache.js`（来源缓存 / lock 回写）、`lib/skill-paths.js`（路径）、`lib/text.js`（输出清洗）、`lib/proc.js`（子进程）；长任务包装在 `lib/job-progress.js`，进度/停止由 dsh 原生作业 UI 提供（见 [过程可见](./job-progress.md)）。
+- 工具与回退共用一次 `planOperation()`：本地判定「要不要建作业 / 处理哪些技能 / 是否已最新」，`applyPlan` 只负责执行。同一条规则只有一处实现。
+- 无 `tools`、无 `agent.followup` 或注入失败时，命令回退到 `runSkillInit` / `runSkillUpdate`（本地执行，语义相同，但没有确认卡与工具结果）。
 - 依赖集合仍从 `COMMANDS` 推导（`skill ?? "git-kit"` 去重，导出为 `REQUIRED_SKILLS`），新增委托型命令后自动跟进。
 - 委托型命令执行前会先查依赖技能是否在 `$DSH_HOME/skills`、`$DSH_AGENTS_HOME/skills` 或 canonical `~/.agents/skills`；缺失时不注入消息，直接返回 `/skill-init` 与手工 `npx` 两条修复路径。
 
-## 执行前确认与回执
+## 执行前确认与结果
 
-`/skill-init` 在 `plan` 判定有可执行变更时，会先通过 dsh 的 `ctx.userQuestions` 弹一次确认；问题、选项和说明按本次 plan 生成：
+`skill_init` 在 plan 判定有可执行变更（install/relink）时，通过 dsh 的 `ctx.userQuestions` 弹一次确认；问题、选项和说明按本次 plan 生成：
 
 - 有缺失技能时给「处理全部 / 只补缺失」；只有上游更新时给「处理全部」。选「只补缺失」只处理 `state=missing` 的条目，已有条目不动。
-- **问不问只由「是否确定要写盘」决定**：缓存过期需要联网检查时不提问（只读，直接做，回执里报告结论）。所以「有没有弹问题」不再取决于「距上次检查多久」。
-- 取消 → `已取消 /skill-init，未做任何变更。`，不建作业；
+- **问不问只由「是否确定要写盘」决定**：上游更新只警告、不写盘也不提问；缓存过期需要联网检查时同样不提问（只读，直接做，结果里报告结论）。
+- 取消 → `status:"cancelled"`，零写、不建作业；
 - 真实目录/文件会跳过链入、不会删除，但来源仍会装到 canonical，所以同样会确认；确认卡会写明这一点；
-- `--yes` 完全跳过确认，适合脚本/自动化；
-- 没有问答 UI、没有活 agent、或命令被委派时自动降级为直接执行，回执首行会标「未确认」并在末尾说明；
+- `yes=true`（`--yes`）完全跳过确认，适合脚本/自动化，但不跳过所有权/真实目录/写前指纹检查；
+- 没有问答 UI、没有活 agent、或确认通道异常 → 返回 `status:"plan"`，零写（不再降级直接执行）；
 - `--update` 是用户显式要求更新，不弹确认。
 
-执行结束后会把回执交给会话：默认 `followup()` 一条 `notice` 形式的执行报告，让 agent 复核并回报——正常只回「无异常」，有需处理事项才列 ≤3 条下一步（这样新建会话里也看得到结果，见 [过程可见](./job-progress.md)）。回执首行是结论（`✓ 无变更` / `✅ 已完成：N 项变更` / `✅ 已更新：…` / `ℹ 无变更，上游有 N 项更新` / `⚠ 已完成，但有 N 项需处理` / `⚠ 已安装，但上游检查失败`），第二行是「过程：作业 …」，第三行是「客户端：命令卡已加载 / 未加载」（未加载时首行还会带 `· 客户端未加载`）。命令卡片显示**命令行 + 参数**，第二行直接给影响面或具体问题（跳过与标题重复的状态头与耗时）；`⚠` 结局用琥珀色「需处理」态，`后台作业` / `未确认` / `客户端未加载` 是卡片上的 chips，展开才看完整回执。无事可做时第二行会写清「本次没有变更，未创建后台任务（原因）」，不会静默结束。
+结果由工具返回，不再发「执行报告」：
+
+- `status`：`ok` / `changed` / `attention` / `blocked` / `cancelled` / `error` / `plan`；
+- `markdown` 首行是结论（`✓ 无变更` / `✅ 已完成：N 项变更` / `✅ 已更新：…` / `ℹ 无变更，上游有 N 项更新` / `⚠ 已完成，但有 N 项需处理` / `⚠ 已安装，但上游检查失败` / `⛔`），随后是逐项动作、契约/验证、下一步；
+- 结果同时带结构化 `actions` / `contract` / `verification` / `warnings` / `next`，供 agent 或上层展示；
+- agent 按注入消息的汇报约束用 1–3 句话总结，不复述工具回执；
+- 作业行/面板/停止由 dsh 原生 UI 提供；本插件不再有命令卡/toast/未读点，也不再有 `客户端：…` 行。
 
 ## 软链的作用（以及为什么不是加载必需）
 
@@ -145,11 +152,11 @@ npx -y skills add morehao/agent-skills …
 
 顺带校验分支契约（`git-kit` 的 9 个分支文件、`disk-cleanup` 的 `cleanup` 分支；`handoff` 是单分支，只校验 `SKILL.md`），结束提示「无需重启 dsh」。
 
-确定要写盘（安装/替换软链、真实目录仍需装 canonical、或 plan 已知上游有更新要重装）时先弹一次确认，取消则什么都不做；有缺失时可以选「只补缺失」走最短路径。`/skill-init --yes` 跳过确认。缓存过期只触发只读检查，不弹确认、也不写盘。
+确定要写盘（安装/替换软链、真实目录仍需装 canonical）时工具先弹一次确认，取消则什么都不做；有缺失时可以选「只补缺失」走最短路径。`/skill-init --yes` 跳过确认。缓存过期只触发只读检查，不弹确认、也不写盘。
 
-缓存 TTL 内确认最新、或测试桩/本地路径下已托管时，不会创建后台任务，回执首行直接给结论；TTL 过期会建作业检查上游，见 [过程可见](./job-progress.md)。
+缓存 TTL 内确认最新、或测试桩/本地路径下已托管时，不会创建后台任务，结果首行直接给结论；TTL 过期会建作业检查上游，见 [过程可见](./job-progress.md)。
 
-已托管但缓存缺失/上游暂时不可达时，`/skill-init` 会尽量补链并回执「已安装；上游检查失败」而不是把已装好的环境判失败；`--update` 仍要求 fetch 成功，不拿旧缓存冒充更新。
+已托管但缓存缺失/上游暂时不可达时，`/skill-init` 会尽量补链并返回「已安装；上游检查失败」而不是把已装好的环境判失败；`--update` 仍要求 fetch 成功，不拿旧缓存冒充更新。
 
 ### `--update`
 

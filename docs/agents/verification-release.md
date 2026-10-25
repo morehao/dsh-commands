@@ -7,14 +7,14 @@
 
 | 改动 | 必跑 | 说明 |
 |---|---|---|
-| `lib/*.js` | `npm run check` | `check` = `check:syntax`（扫 `lib/`、`scripts/` 与 locale JSON）+ 命名 + 打包 + Release 投影 + `npm test`（三个冒烟）；CI 跑的就是同一串 npm script |
+| `lib/*.js` | `npm run check` | `check` = `check:syntax`（扫 `lib/`、`scripts/` 与 locale JSON）+ 命名 + 打包 + Release 投影 + `npm test`（五个冒烟）；CI 跑的就是同一串 npm script |
 | `COMMANDS` / `branch` | 上面 + `npm run check:contract` | 契约校验依赖技能已安装，不在 CI |
-| `package.json` / `exports` / `files` / 命名 | `npm run check:naming` + `npm run check:pack` | CI 也跑；`dsh.client` 与 `./client` 必须在 `exports` 中，`lib/client.js` 必须入包 |
+| `package.json` / `exports` / `files` / 命名 | `npm run check:naming` + `npm run check:pack` | CI 也跑；工具/命令源码必须全部入包；已不再有 `dsh.client` / `./client` |
 | `scripts/*.mjs` | `npm run check:syntax` + 对应冒烟 | 语法已由目录扫描覆盖，不用逐个 `node --check`；`release-notes` 有自己的冒烟 |
 | CI / release workflow | 本地跑对应 npm script；`bash -n scripts/ci-publish.sh` | 不要只改 YAML 不验证 |
 | 纯文档 | 链接与事实核对 | 不跑代码检查 |
 
-`npm test` 只跑三个冒烟（client half 接线 + 技能自举 + 技能缓存），不等于全量检查；交付前优先 `npm run check`。
+`npm test` 跑五个冒烟（技能自举 + plan + 工具 + 命令 + 缓存），不等于全量检查；交付前优先 `npm run check`。
 
 ## 2. CI 实际跑什么（check.yml）
 
@@ -25,7 +25,7 @@ PR 与 push `main` 触发，机械校验：
 3. `npm run check:release-notes`（注记 tag → Release body 投影）
 4. `npm run check:naming`
 5. `npm run check:pack`
-6. `npm test`（三个离线冒烟：client half 槽注册 / locale / inject、技能自举、技能缓存）
+6. `npm test`（五个离线冒烟：技能自举、plan、`skill_init` 工具、`/skill-init` 命令、技能缓存）
 
 CI 的每一步都调 `package.json` 里的 npm script，不在 YAML 里另列文件清单——CI 与本地跑的是同一串脚本。
 

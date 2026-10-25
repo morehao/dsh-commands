@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased]
+
+## [v0.3.0] - 2026-10-25
+
+### 破坏性变更
+
+- **`/skill-init` 改为维护型委托**：命令只解析 `--update` / `--yes` / 技能名，注入一条 `source.kind: "user"` 消息，由 agent 调用 `skill_init` 工具；命令卡只显示一行「已开始检查/更新依赖技能」。确认（处理全部 / 只补缺失 / 取消）、后台作业、停止、结果明细都在工具里。无 `tools`、无 `agent.followup` 或注入失败时回退到本地执行，旧宿主不丢功能。
+- **删除 web client half 与旧命令 UX**：`lib/client.js`、命令卡/toast/未读点、执行报告 `reportOutcome()`、`cordis-host-runner` 复核消息、`clientHalfState()` 自证行，以及 `lib/confirm.js`、`LOCAL_COMMANDS` / `makeLocalHandler` 全部移除。进度/停止/完成感知由 dsh 原生作业 UI 提供；`package.json` 去掉 `dsh.client`、`exports["./client"]` 与 `smoke:client`。依赖这些导出或旧卡片格式的下游需要适配。
+- **工具结果改为汇报式**：`markdown` 首行结论 + 动作/契约/验证/下一步；agent 用 1–3 句总结，不再被要求「只回无异常」。`/skill-init` 与委托型命令统一 `recordInput: false`（命令行参数不再进 `command/run.args`）。
+
+### 变更
+
+- **新增 `skill_init` 工具**：与命令共享 observe/plan/apply/verify；默认先确认，无 `userQuestions` 时只返回计划且零写；支持 `mode=init/update/check`、`names`、`yes`，未知技能直接拒绝、确认后指纹变化整次中止。工具在 `ctx.get("tools")` 可用时注册，旧宿主自动跳过。
+- **作业停止的结算修正**：用户停止时生产者现在标记 `killed`（`cancel` 标志），不再被记成 `failed`；此前 `runInJob` 的 `killed` 分支不可达。
+- **plan 已知的上游更新改为只警告、不重装**：`/skill-init` 的写盘集合只剩缺失/待修复项，`changed` 不再触发确认、不再在缓存命中时重装；回执首行仍给 `ℹ 无变更，上游有 N 项更新` 与 `--update` 指引。`/skill-init --update` 仍是唯一重装入口。
+
+
 本文件记录 `@morehao/dsh-commands` 的发布历史。`v0.1.0`–`v0.1.7` 由旧仓
 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 的 `commands-dsh/` 目录发布，
 2026-10 起在本仓发布；npm 包名未变，版本号连续。
