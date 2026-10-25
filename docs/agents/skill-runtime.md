@@ -13,21 +13,19 @@
 | `lib/proc.js` | 子进程 timeout / abort / 输出上限 | 不经 shell 拼命令 |
 | `lib/text.js` | ANSI / 框线 / spinner 清洗、tail 截断 | 不加业务语义 |
 | `lib/job-progress.js` | 把 work 挂到 `ctx.jobs`、`wait` 收尾、降级 | 不含技能逻辑 |
-| `lib/confirm.js` | 执行前的 `ctx.userQuestions` 确认、按 plan 生成选项、`--yes`/不可用降级 | 不执行安装、不碰 `ctx.jobs` |
+| `lib/skill-command.js` | `/skill-init` 的 flags 解析、注入消息、handler 与本地回退 | 不执行安装、不碰 `ctx.jobs` |
 | `lib/tool-skill-init.js` | `skill_init` 工具定义（参数/结果 schema/markdown）与 execute 编排；纯定义，不 import `@deepseek-ai/*` | 不复制 observe/plan/apply；不在 `execute` 外解析服务 |
 
 ## 2. 调用链
 
-本地型 handler：
+命令层（`lib/skill-command.js`）：
 
-1. 解析 `--yes` / `--update`；非 `--update` 时位置参数直接报用法（不再有「来源」概念）。
-2. `def.plan(COMMANDS, input, options)` → `planSkillOperation(options.update ? "skill-update" : "skill-init", …)`；纯本地，不联网、不写盘。
-3. 有副作用且未 `--yes`/`--update` 时 `confirmSkillOperation()`：把变更/跳过项摊给用户，给出「处理全部 / 只补缺失 / 取消」，返回 `choice`（`all` / `missing`）。没有 userQuestions 或没有活 agent 时**不阻塞**，直接执行并在回执补一行说明。
-4. `runInJob({ jobs, owner, kind, label: def.label(input, plan), signal, skip: plan.skipReason, work })`。
-5. `work` 里调 `def.run(...)`：init 走 `runSkillInit`，`--update` 走 `runSkillUpdate`；`run*` 只执行 plan，不再重复 inspect / 比对 hash。
-6. 结算：`run*` 首行是结论式 `✓/✅/⚠`，handler 把「过程：作业 …」放到第二行，并在有作业时给首行加 `· 后台作业` 标记；无事可做时首行仍是结论，第二行解释为什么没有作业。
+1. `parseSkillInitInput(rawInput)`：`--update` / `--yes` / 技能名；init 带技能名、未知 flag → 用法错误，不注入。
+2. 无 `tools`、无 `agent.followup` → `fallback(parsed, invocation)` 直接跑 `runSkillInit` / `runSkillUpdate`，返回文本。
+3. `buildSkillInitMessage()` → `createUserMessage()` → `invocation.agent.followup()`；成功返回一行「已开始检查/更新依赖技能」。
+4. 注入抛错 → 本地回退，不留半条消息。
 
-`plan` 只算一次是硬约束：handler 与 run 各算一遍会产生两套 skip 文案和不一致的判定。
+`plan` 只算一次是硬约束：命令层不 plan，工具层只 plan 一次并把它用于确认、写盘与回执。
 
 ### 2.1 工具链路
 
@@ -49,9 +47,9 @@
 - **lock 来源回写**：`skills add <本地缓存>` 会把 lock 写成 local；安装后必须回写 `source` / `sourceType` / `sourceUrl` / `skillPath` / `skillFolderHash`，否则其他 agent 的 `npx skills update` 认不出远端。
 - **单一写入锁**：同一 `DSH_HOME` + canonical 目录同时只允许一个技能写操作；第二次直接拒绝，不并行 clone。
 - **`-a universal` 必须显式给**；不要用 `skills update`（内部 spawn 可能装到所有 agent 目录），`--update` 也用 `add`。
-- **确认只看「是否确定要写盘」**：`pending`（缺失/待修复）或 `plan.freshness.changed`（缓存已知的上游更新）才问；**缓存过期不提问**（联网检查只读）。真实目录/文件虽然不会替换链接，但来源仍会装进 canonical，所以同样会问。`--yes` 完全跳过；`ctx.userQuestions`/活 agent 缺失时降级执行并在回执首行标 `· 未确认`，不能把命令卡死。只有 `ASK_CANCELLED` / `ASK_ABORTED` 才算用户取消。
+- **确认只看「是否确定要写盘」**：`plan.confirm.needs`（install/relink）才问；缓存过期只做只读探针，不提问。`yes=true` 完全跳过确认，但**不跳过**所有权、真实目录、指纹检查。无 `userQuestions`/活 agent 或确认通道异常 → 工具返回 `status:"plan"`、零写（不再 pass-through 执行）；只有 `ASK_CANCELLED` / `ASK_ABORTED` 才算用户取消。
 - **写盘范围只由 plan 决定**（`installTargets()`）：运行时 `checkSourceSkills()` 发现的上游更新**只报告、不安装**（回执给 `--update` 指引）。不要图省事把 `check.changed` 并进 `toInstall`——那会在用户没确认的情况下覆盖写，破坏「只由写盘触发确认」。
-- **choice 只影响执行范围，不改变 plan**：`choice=missing` 时 `runSkillInit` 只处理 `state=missing`，跳过上游比对和已有条目。
+- **choice 只影响执行范围，不改变 plan**：`只补缺失` 把非 missing 的 install/relink 降级为 skip，`applyPlan` 只写 missing 条目；旧命令回退用 `runSkillInit({choice:"missing"})`。
 - **任意来源安装不在本插件内**：dsh 扫描 canonical `~/.agents/skills`，额外技能用 `npx -y skills add <来源> --skill <名称> -g -a universal -y`，不需要软链，也不要重新引入 `/skill-install` 式的四路并集逻辑。
 
 ## 4. 缓存与 TTL
@@ -78,14 +76,13 @@
 
 ## 6. 作业与取消
 
-- host 命令面没有进度通道；过程走 `ctx.jobs`：`reporter.progress()` 更新作业行，`reporter.write()` 写面板。web client half（`lib/client.js`）再把 `ctx.jobs` 快照渲染回命令卡，并在作业结算时补完成提示（当前会话也弹，切走时才额外标未读）。
+- 工具内过程走 `ctx.jobs`：`reporter.progress()` 更新作业行，`reporter.write()` 写面板；作业行/面板/停止由 dsh 原生 UI 提供，本插件不再有 client half。
 - **必须 `wait()` 到终态**：`runInJob` 自己切片 `jobs.wait()`，保持 `awaited=true`，结算不投完成通知、不唤醒模型回合。不要改成订阅事件收尾。
 - 作业结束前写一条 `完成：<结论首行>` 的 progress，结算后作业行仍能看到最终结论；但因为 `awaited`，**不会**再投一条完成通知——这是有意的零 token 取舍。
 - 取消只终止子进程，不提前结束等待；`signal` 中止 → `jobs.kill`，最终返回 `{ killed: true }`。生产者用 `cancel` 标志决定结算成 `killed` 还是 `failed`：用户停止时 `cancel()` 已置位，`work` 抛出的错误必须记 `killed`（否则 `jobs-local` 的终态是 `failed`，`killed` 分支不可达）。
 - `ctx.jobs` 缺失、无控制器、并发上限、无 owner：退回直接执行（`NO_REPORTER`），语义不变；`apply` 不把 `jobs` 写进 `inject`。
-- 无事可做时 `plan.skipReason` 有值：不建作业，但工作仍以无 reporter 跑一遍（幂等修复）；这类路径没有作业事件，完成感由命令卡的 `无变更` 态 + 回执第二行承担。
-- **每条出口都要 `reportOutcome()`**：本地命令的结果要交给会话，否则等于"执行了但什么都没发生"。默认用 `agent.followup()` 发一条 `source.kind: "cordis-host-runner"`、`form: "notice"` 的**执行报告 + 复核指令**：dsh 的会话 `blank` 只由 `turn/start` 解除（`applySessionListMetadata`），命令事件和 `inject()` 都不算，所以不唤醒一轮，空会话里连卡片都没有落点。**改用 `inject()` 前先读这条**：它只记录、不解除 blank，只适合「取消」这类用户刚刚亲手做过动作的出口。复核指令要求 agent 不复述命令卡内容：正常只回「无异常」，有需处理事项才列 ≤3 条下一步；不要改成「回报结论」，否则又变成卡与回答重复。
-- **回执必须自证 client half 是否加载**：`clientHalfState(ctx)` 读 `ctx.get("clientModules").graph().entries` 判断本包行是否在 boot graph 里。dsh 的客户端模块表只在启动时构建，运行中新装的包不会自动进表（host half 会被 hmr 热加载，client half 不会），此时所有自绘 UI 静默消失。未加载时首行标 `· 客户端未加载`、第三行给「重启 dsh 后生效」——不要删这行，它是这种失败唯一的用户可见线索。
+- 工具在无写盘且无需探针时直接出结论，不建空作业；需要联网检查上游时（缓存过期）把只读探针放进作业，结束后再 `applyPlan`。
+- **结果由工具返回，不再发执行报告**：`markdown` 第一行是结论（`✓/✅/⚠/⛔/…`），agent 按注入消息要求用 1–3 句话总结；命令卡只显示一行「已开始…」。不要再引入 `reportOutcome` / `cordis-host-runner` / client half。
 
 ## 7. 子进程与文本
 
@@ -104,8 +101,8 @@
 ## 9. 修改检查清单
 
 - [ ] `plan` 仍然只算一次；`run*` 没有重复 inspect / hash。
-- [ ] 确认只在有可执行变更时出现；`--yes`、无 userQuestions、无 agent 都不会卡住命令。
-- [ ] 回执首行是 `✓/✅/⚠` 结论；「过程：作业 …」不再放在最后一行。
+- [ ] 确认只在有可执行变更时出现；`yes`、无 userQuestions、无 agent 都不会卡住命令。
+- [ ] 工具 markdown 首行是结论；停止/取消/blocked 都有明确 status。
 - [ ] 没有新增备份目录、没有删真实目录/文件。
 - [ ] 软链仍指向 canonical；lock 回写字段完整。
 - [ ] 新行为有离线冒烟覆盖；失败路径有可读回执。

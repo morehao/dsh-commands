@@ -22,11 +22,11 @@
 | `/handoff` | `[任务范围]` | handoff → print（只打印，不落盘） |
 | `/cleanup` | `[清理范围]` | disk-cleanup → cleanup（无参数时先给选项，不执行脚本） |
 
-本地执行型（不经 agent，负责把插件依赖的技能装上、软链进 dsh 并保持最新）：
+维护型委托（经 `skill_init` 工具执行，负责把插件依赖的技能装上、软链进 dsh 并保持最新）：
 
 | 命令 | 参数 | 作用 |
 |---|---|---|
-| `/skill-init` | `[--update [技能名...]] [--yes]` | 检查并安装插件依赖的技能，软链进 dsh；**只在确定要写盘时**确认（缺失/待修复）。上游有更新的技能不会被静默覆盖：`/skill-init` 只报告，装到最新要用 `--update`（可指定技能名，显式更新不弹确认）；`--yes` 跳过确认 |
+| `/skill-init` | `[--update [技能名...]] [--yes]` | 检查并安装插件依赖的技能，软链进 dsh；**只在确定要写盘时**弹确认（缺失/待修复）。上游有更新的技能不会被静默覆盖：`/skill-init` 只报告，装到最新要用 `--update`（可指定技能名，显式更新不弹确认）；`--yes` 跳过确认 |
 
 额外技能（例如 agent-skills 的 `tech-design`、`project-insight`）不再由插件安装：dsh 本身会扫描 `~/.agents/skills`，直接执行下面这条即可，或者用自然语言让 agent 装：
 
@@ -34,7 +34,7 @@
 npx -y skills add morehao/agent-skills --skill tech-design -g -a universal -y
 ```
 
-长任务会挂到 dsh 后台任务上：会话头部实时显示阶段，面板里是 `skills` CLI 的流式输出，可两击停止，且不触发模型回合。web 端由 `lib/client.js` 接管命令卡，执行中显示阶段、计时、日志和停止；完成/失败后卡片保留结论。切到别的会话时，右下角会出现应用级完成提示，「技能维护」会话保留未读点，点开即清。每条本地命令结束都会把回执交给会话：默认发一条 notice 形式的执行报告并唤醒一轮让 agent 复核——正常只回「无异常」，有需处理事项才列 ≤3 条下一步，所以新建会话里也看得到结果；`DSH_COMMANDS_SKILL_NOTIFY=notice` 可降级为只记录不唤醒。命令卡是**问题**（命令行 + 参数 + 影响面），触发行是系统注解，agent 的回复才是答案。回执首行是结论（`✓ 无变更` / `✅ 已完成：N 项变更` / `✅ 已更新：…` / `ℹ 无变更，上游有 N 项更新` / `⚠ 已完成，但有 N 项需处理`），第二行是「过程：作业 …」，第三行是「客户端：命令卡已加载 / 未加载」；卡片本身第二行直接给影响面或具体问题（不重复状态与耗时），`⚠` 用琥珀色「需处理」态，`后台作业` / `未确认` / `客户端未加载` 是 chips。无事可做时也写清「本次没有变更，未创建后台任务（原因）」，client half 没进页面时首行会直接标 `· 客户端未加载`（重启 dsh 生效）。作业结算时会弹一次完成提示（当前会话也弹），切走后另有未读点。`/skill-init` 只在**确定要写盘**时用 dsh 的问答卡确认一次（缺失/待修复），缓存过期只做只读检查不打断，`--yes` 可跳过；`--update` 是显式更新，不打断。技能来源默认缓存在 `$DSH_HOME/cache/skills-sources`，首次 clone、之后增量 fetch，安装不再每次整仓克隆。详见 [技能自举](./docs/skill-setup.md) 与 [过程可见](./docs/job-progress.md)。
+`/skill-init` 是一条维护型委托命令：注入一条 user 消息，由 agent 调用 `skill_init` 工具；工具内部按 observe → plan → confirm → apply → verify 执行，命令卡只显示一行「已开始检查依赖技能」。确定要写盘时，工具用 dsh 原生问答卡确认一次（`处理全部` / `只补缺失` / `取消`），`--yes` 跳过；缓存过期只做只读检查、不打断。安装/更新过程挂在后台作业上：会话头部实时显示阶段，面板里是 `skills` CLI 的流式输出，可两击停止，不触发额外模型回合。结果由工具返回结论 + 逐项明细 + 契约/验证信息，agent 用 1–3 句话总结（有需处理事项才列下一步）。无 `tools` 或没有可用 agent 时，命令自动回退到本地执行核心，功能不丢。技能来源默认缓存在 `$DSH_HOME/cache/skills-sources`，首次 clone、之后增量 fetch；`--update` 是显式更新，init 发现上游更新只报告。详见 [技能自举](./docs/skill-setup.md) 与 [过程可见](./docs/job-progress.md)。
 
 ## 安装
 
@@ -45,7 +45,7 @@ npx -y skills add morehao/agent-skills --skill tech-design -g -a universal -y
 dsh plugin --profile <profile> add @morehao/dsh-commands
 ```
 
-装完在 dsh 里执行 `/skill-init`：检查 `git-kit` / `handoff` / `disk-cleanup`，缺失则从本地缓存（首次自动 clone）用 `skills` CLI 全局安装并软链进 `$DSH_HOME/skills`（默认 `~/.dsh/skills`）；已托管且缓存 TTL 内与 lock 一致则跳过，TTL 过期会检查上游，**有更新只报告不重装**。确定要写盘（装缺失/修链）时会先弹一次确认，`/skill-init --yes` 可跳过；要把装好的技能跟到最新用 `/skill-init --update`。安装结果仍是标准的 `~/.agents/skills` + `.skill-lock.json`，其他 agent 可以继续用 `npx skills`。
+装完在 dsh 里执行 `/skill-init`：检查 `git-kit` / `handoff` / `disk-cleanup`，缺失则从本地缓存（首次自动 clone）用 `skills` CLI 全局安装并软链进 `$DSH_HOME/skills`（默认 `~/.dsh/skills`）；已托管且缓存 TTL 内与 lock 一致则跳过，TTL 过期会检查上游，**有更新只报告不重装**。确定要写盘（装缺失/修链）时工具会先弹一次确认，`/skill-init --yes` 可跳过；要把装好的技能跟到最新用 `/skill-init --update`。安装结果仍是标准的 `~/.agents/skills` + `.skill-lock.json`，其他 agent 可以继续用 `npx skills`。
 
 装好后直接输入 `/` 选择命令，例如 `/git-message 修复登录超时`、`/git-commit-push`、`/handoff`、`/cleanup`（不带参数时先给编号选项）。
 
@@ -57,8 +57,8 @@ dsh plugin --profile <profile> add @morehao/dsh-commands
 
 - 编辑技能内容（`$DSH_HOME/skills/...`）**无需重启**，下次执行即生效。
 - 委托型命令执行前会确认依赖技能是否已安装（`$DSH_HOME/skills`、`$DSH_AGENTS_HOME/skills` 或 `~/.agents/skills`）；缺失时不注入消息，直接返回 `/skill-init` 与手工 `npx` 两条修复路径。
-- 本地执行型命令 `/skill-init`（含 `--update`）不走 agent：确定要写盘时才通过 `ctx.userQuestions` 确认，执行过程走后台作业，回执首行给结论；`--yes` 跳过确认。
-- 同一执行核心也暴露为 `skill_init` 工具（`mode=init/update/check`、`names`、`yes`）：默认先确认；无确认通道时只返回计划、不写盘。当前版本 `/skill-init` 仍走本地命令，工具供 agent 直接调用。
+- 维护型委托 `/skill-init`（含 `--update`）注入一条 user 消息，由 agent 调用 `skill_init` 工具（`mode=init/update/check`、`names`、`yes`）：默认先确认；无确认通道时只返回计划、不写盘；`yes=true` 只跳过确认，不跳过所有权/真实目录/指纹检查。
+- 命令与工具共用 `lib/skill-setup.js` 的 observe/plan/apply/verify；无 `tools`、无 `agent.followup` 或注入失败时，命令回退到 `runSkillInit` / `runSkillUpdate`，旧宿主仍可用。
 - 修改插件源码（含 `COMMANDS` 表）需重启 dsh web；只有以 `link:` 方式接入时才改源码即生效，npm 版是拷贝。
 - 命令描述直接写中文：dsh 目前不向第三方提供描述文本的 i18n 钩子。
 

@@ -10,8 +10,7 @@
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json",
     "./locale/*.json": "./locale/*.json",
-    "./icon": "./icon.svg",
-    "./client": "./lib/client.js"
+    "./icon": "./icon.svg"
   },
   "files": [
     "lib",
@@ -49,15 +48,10 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
-    },
-    "client": {
-      "platform": "web",
-      "immediately": true
     }
   },
   "scripts": {
-    "test": "npm run smoke:client && npm run smoke:setup && npm run smoke:plan && npm run smoke:tool && npm run smoke:command && npm run smoke:cache",
-    "smoke:client": "node scripts/smoke-client-bundle.mjs",
+    "test": "npm run smoke:setup && npm run smoke:plan && npm run smoke:tool && npm run smoke:command && npm run smoke:cache",
     "smoke:setup": "node scripts/smoke-skill-setup.mjs",
     "smoke:plan": "node scripts/smoke-skill-plan.mjs",
     "smoke:tool": "node scripts/smoke-skill-tool.mjs",

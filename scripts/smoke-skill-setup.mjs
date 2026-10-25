@@ -742,65 +742,6 @@ try {
 	check(!delegatedWithoutSkill, "e2e：技能缺失时没有注入 user 消息");
 
 	// ---- 10) 交互确认：有变更先问，取消/继续/--yes 都不炸 ---------------
-	const { needsConfirmation, confirmationRequest, confirmSkillOperation } = await import("../lib/confirm.js");
-	const actionablePlan = {
-		skipReason: undefined,
-		source: "morehao/agent-skills",
-		requested: ["git-kit"],
-		targets: ["git-kit"],
-		pending: [{ name: "git-kit", state: "missing", isSymlink: false, isDirectory: false }],
-		freshness: { cacheSource: false, changed: [] },
-	};
-	check(
-		needsConfirmation({ name: "skill-init" }, actionablePlan) === true,
-		"confirm：有可执行的待办时需要确认",
-		JSON.stringify(actionablePlan),
-	);
-	check(
-		needsConfirmation(
-			{ name: "skill-init" },
-			{ ...actionablePlan, pending: [{ name: "handoff", state: "unmanaged", isSymlink: false, isDirectory: true }] },
-		) === true,
-		"confirm：真实目录仍会装 canonical，同样需要确认",
-		"blocked plan",
-	);
-	check(
-		needsConfirmation({ name: "skill-init" }, { ...actionablePlan, kind: "skill-update" }) === false,
-		"confirm：--update 是显式更新，不弹确认",
-	);
-
-	const managedState = { name: "handoff", state: "managed", isSymlink: true, isDirectory: false };
-	const initPlan = {
-		...actionablePlan,
-		pending: [actionablePlan.pending[0], managedState],
-		states: [actionablePlan.pending[0], managedState],
-		freshness: { cacheSource: true, fresh: false, changed: [] },
-	};
-	const initRequest = confirmationRequest({ name: "skill-init" }, initPlan);
-	check(
-		initRequest.question !== "执行上述技能维护操作，继续执行？" &&
-			initRequest.options.some((option) => option.label === "只补缺失"),
-		"confirm：init 的问题按本次技能生成，并给出「只补缺失」",
-		JSON.stringify(initRequest),
-	);
-	check(
-		initRequest.detail.includes("未安装") && initRequest.detail.includes("已安装"),
-		"confirm：init 的说明逐项列出未安装/已安装",
-		initRequest.detail,
-	);
-	const choiceQuestions = {
-		async ask(request) {
-			return { answers: [{ id: request.questions[0].id, selected: ["只补缺失"] }] };
-		},
-	};
-	const missingDecision = await confirmSkillOperation({
-		userQuestions: choiceQuestions,
-		agent: { session: { id: "session-confirm" } },
-		def: { name: "skill-init" },
-		plan: initPlan,
-	});
-	check(missingDecision.action === "proceed" && missingDecision.choice === "missing", "confirm：选择「只补缺失」映射为 choice=missing", JSON.stringify(missingDecision));
-
 	// 把 git-kit 换回非托管软链，制造一个「可执行待办 + 真实目录」的混合计划。
 	await rm(linkPath("git-kit"), { force: true });
 	await symlink(localClone, linkPath("git-kit"), "dir");
@@ -824,6 +765,7 @@ try {
 
 	// ---- 11) 写盘范围与提问条件：只由「确定要写盘」驱动 ----------------------
 	// 缓存过期 / 无事可做都不再提问：问不问不能取决于「距上次检查多久」。
+	const { needsConfirmation } = await import("../lib/skill-confirm.js");
 	const managedOnlyPlan = {
 		skipReason: undefined,
 		kind: "skill-init",

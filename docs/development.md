@@ -1,20 +1,21 @@
 # 开发与测试
 
-host 没有构建步骤，源码即产物（纯 ESM）；唯一运行时依赖是 `skills` CLI。web client half（`lib/client.js`）也是手写的预打包 bundle，不需要前端构建。
+host 没有构建步骤，源码即产物（纯 ESM）；唯一运行时依赖是 `skills` CLI。没有 web client half。
 
 ## 目录
 
 | 路径 | 作用 |
 |---|---|
-| `lib/index.js` | 意图表 `COMMANDS` / `LOCAL_COMMANDS`、`apply()` 注册命令 |
+| `lib/index.js` | 意图表 `COMMANDS`、`/skill-init` 元数据、`apply()` 注册命令与工具 |
 | `lib/skill-setup.js` | `/skill-init`（含 `--update`）的 plan、安装、软链、校验 |
 | `lib/skill-paths.js` | `$DSH_HOME` / `$DSH_AGENTS_HOME` / lock 路径解析 |
 | `lib/skill-cache.js` | 来源浅克隆缓存、TTL、lock 回写 |
 | `lib/text.js` | ANSI 清洗、spinner 折叠、尾部截断 |
 | `lib/proc.js` | 子进程 timeout / abort / 输出上限 |
 | `lib/job-progress.js` | 把长任务挂到 `ctx.jobs`，作业行/面板/停止/回执 |
-| `lib/confirm.js` | `/skill-init` 执行前的 `ctx.userQuestions` 确认、按 plan 生成范围选项、`--yes` 降级 |
-| `lib/client.js` | web client half：命令状态卡、`shell.overlay` 完成提示、会话行未读点 |
+| `lib/skill-command.js` | `/skill-init` flags 解析、注入消息、handler、本地回退 |
+| `lib/skill-confirm.js` | `skill_init` 的确认问题/选项与 `confirmSkillPlan()` |
+| `lib/tool-skill-init.js` | `skill_init` 工具定义、execute 编排、结果 markdown |
 | `locale/{zh,en}.json` | 插件页标题与描述 |
 | `cordis.patch.yml` | dsh profile bundle patch（注册插件） |
 | `scripts/` | 契约校验、冒烟、命名/打包校验、发布脚本 |
@@ -47,13 +48,15 @@ CI 默认不跑契约校验——它依赖另一仓的技能目录。
 ## 冒烟测试
 
 ```bash
-npm test                             # 等价于下面三个冒烟（CI 也只调这一个入口）
-node scripts/smoke-client-bundle.mjs # client half 接线：命令卡 / 完成提示 / 未读点注册到约定槽
-node scripts/smoke-skill-setup.mjs   # stub CLI：安装/软链/并发/超时/作业
+npm test                             # 等价于下面五个冒烟（CI 也只调这一个入口）
+node scripts/smoke-skill-setup.mjs   # stub CLI：安装/软链/并发/超时/作业/命令回退
+node scripts/smoke-skill-plan.mjs    # observe/plan：所有权、缺失、真实目录、控制台记录
+node scripts/smoke-skill-tool.mjs    # skill_init：确认/写盘/停止/指纹/结果矩阵
+node scripts/smoke-skill-command.mjs # /skill-init：flags、注入消息、source.kind、回退
 node scripts/smoke-skill-cache.mjs   # 本地 git 源：cache/TTL/refresh/离线/lock 回写
 ```
 
-`smoke-client-bundle` 加载 `lib/client.js` 的预打包 bundle，断言 client half 把命令卡、应用级完成提示、会话行未读点注册到约定槽，并核对 locale 与 `inject()` 形状（不启动 dsh、不联网）。
+`smoke-skill-plan` 用临时 HOME 覆盖 observe/plan 的 15 种组合；`smoke-skill-tool` 用假 jobs/asker 覆盖工具的完整矩阵与交互不变量；`smoke-skill-command` 只测命令层，不启动 dsh。
 
 `smoke-skill-setup` 用 `DSH_COMMANDS_SKILL_CLI_OVERRIDE` 指向一个 stub 顶替 `skills` CLI，在临时 HOME 里覆盖：
 
@@ -61,7 +64,8 @@ node scripts/smoke-skill-cache.mjs   # 本地 git 源：cache/TTL/refresh/离线
 - 全程不联网、不碰真实 `~/.dsh`，也不会产生备份目录；
 - 失败回执剥框线、ANSI 与 CLI logo，网络不可达时给代理/镜像提示；
 - 过程可见层用假 jobs 注册表断言「只启动一个作业 / kind·owner·label 透传 / 阶段文案刷新 / CLI 输出流入面板 / 结算前已 `wait`（awaited，不投通知）/ 结果带回作业视图 / 作业被停止返回 killed / 取消只 kill 不抢跑 / jobs 缺失与无控制器降级 / `apply()` 注册的 handler 端到端跑通（12 条命令、`--update`、非法位置参数、/cleanup 无参数注入「先给选项」、回执首行结论 + 第二行作业 id）」；
-- 执行前确认用假 `ctx.userQuestions` 断言「确定要写盘才问 / 缓存过期不提问 / 真实目录也会问（仍装 canonical）/ 取消不建作业 / 继续后正常执行 / `--yes` 跳过」；`installTargets()` 单独断言写盘范围（仅缺失/待修复；上游更新只报告，缓存过期时也为空），与技能冒烟一起跑，共一百三十余项断言。
+- `needsConfirmation()` 与 `installTargets()` 单独断言：写盘只由缺失/待修复驱动，上游更新只报告；确认逻辑本身由 `smoke-skill-tool` 覆盖。
+- `/skill-init` 命令层在无 tools 时走本地回退（`--update` 仍强制更新，非法位置参数报用法）；有 tools 时的注入行为由 `smoke-skill-command` 覆盖。
 
 `smoke-skill-cache` 用临时 git 源验证首次 clone、TTL 命中、refresh 更新、`ttl<0` 离线、fetch 失败回退、`--json` 解析与 lock 来源/40 位 git tree hash 回写（24 项，不联网）。
 
@@ -76,7 +80,7 @@ node scripts/smoke-skill-cache.mjs   # 本地 git 源：cache/TTL/refresh/离线
 - Release 正文投影：`npm run check:release-notes`（注记 tag → Release body）；
 - 包名 / 模块标识符 / 插件名三处一致：`npm run check:naming`；
 - 打包内容白名单：`npm run check:pack`（防止 `.dsh/` 草稿、`node_modules`、`*.tgz` 混进 npm tarball）；
-- 三个离线冒烟：`npm test`（client half 接线 + 技能自举 + 技能缓存）。
+- 五个离线冒烟：`npm test`（技能自举 + plan + 工具 + 命令 + 缓存）。
 
 本地 `npm run check` = 上面除 `bash -n` 外的全部（`check:contract` 不在其中，它依赖另一仓的技能目录）。
 
