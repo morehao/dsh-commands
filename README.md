@@ -26,7 +26,7 @@
 
 | 命令 | 参数 | 作用 |
 |---|---|---|
-| `/skill-init` | `[--update [技能名...]] [--yes]` | 检查并安装插件依赖的技能，软链进 dsh；**只在确定要写盘时**确认（缺失/待修复、或已知上游有更新）。上游有更新的技能不会被静默覆盖：`/skill-init` 只报告，装到最新要用 `--update`（可指定技能名，显式更新不弹确认）；`--yes` 跳过确认 |
+| `/skill-init` | `[--update [技能名...]] [--yes]` | 检查并安装插件依赖的技能，软链进 dsh；**只在确定要写盘时**确认（缺失/待修复）。上游有更新的技能不会被静默覆盖：`/skill-init` 只报告，装到最新要用 `--update`（可指定技能名，显式更新不弹确认）；`--yes` 跳过确认 |
 
 额外技能（例如 agent-skills 的 `tech-design`、`project-insight`）不再由插件安装：dsh 本身会扫描 `~/.agents/skills`，直接执行下面这条即可，或者用自然语言让 agent 装：
 
@@ -34,7 +34,7 @@
 npx -y skills add morehao/agent-skills --skill tech-design -g -a universal -y
 ```
 
-长任务会挂到 dsh 后台任务上：会话头部实时显示阶段，面板里是 `skills` CLI 的流式输出，可两击停止，且不触发模型回合。web 端由 `lib/client.js` 接管命令卡，执行中显示阶段、计时、日志和停止；完成/失败后卡片保留结论。切到别的会话时，右下角会出现应用级完成提示，「技能维护」会话保留未读点，点开即清。每条本地命令结束都会把回执交给会话：默认发一条 notice 形式的执行报告并唤醒一轮让 agent 复核——正常只回「无异常」，有需处理事项才列 ≤3 条下一步，所以新建会话里也看得到结果；`DSH_COMMANDS_SKILL_NOTIFY=notice` 可降级为只记录不唤醒。命令卡是**问题**（命令行 + 参数 + 影响面），触发行是系统注解，agent 的回复才是答案。回执首行是结论（`✓ 无变更` / `✅ 已完成：N 项变更` / `✅ 已更新：…` / `ℹ 无变更，上游有 N 项更新` / `⚠ 已完成，但有 N 项需处理`），第二行是「过程：作业 …」，第三行是「客户端：命令卡已加载 / 未加载」；卡片本身第二行直接给影响面或具体问题（不重复状态与耗时），`⚠` 用琥珀色「需处理」态，`后台作业` / `未确认` / `客户端未加载` 是 chips。无事可做时也写清「本次没有变更，未创建后台任务（原因）」，client half 没进页面时首行会直接标 `· 客户端未加载`（重启 dsh 生效）。作业结算时会弹一次完成提示（当前会话也弹），切走后另有未读点。`/skill-init` 只在**确定要写盘**时用 dsh 的问答卡确认一次（缺失/待修复、或已知上游有更新），缓存过期只做只读检查不打断，`--yes` 可跳过；`--update` 是显式更新，不打断。技能来源默认缓存在 `$DSH_HOME/cache/skills-sources`，首次 clone、之后增量 fetch，安装不再每次整仓克隆。详见 [技能自举](./docs/skill-setup.md) 与 [过程可见](./docs/job-progress.md)。
+长任务会挂到 dsh 后台任务上：会话头部实时显示阶段，面板里是 `skills` CLI 的流式输出，可两击停止，且不触发模型回合。web 端由 `lib/client.js` 接管命令卡，执行中显示阶段、计时、日志和停止；完成/失败后卡片保留结论。切到别的会话时，右下角会出现应用级完成提示，「技能维护」会话保留未读点，点开即清。每条本地命令结束都会把回执交给会话：默认发一条 notice 形式的执行报告并唤醒一轮让 agent 复核——正常只回「无异常」，有需处理事项才列 ≤3 条下一步，所以新建会话里也看得到结果；`DSH_COMMANDS_SKILL_NOTIFY=notice` 可降级为只记录不唤醒。命令卡是**问题**（命令行 + 参数 + 影响面），触发行是系统注解，agent 的回复才是答案。回执首行是结论（`✓ 无变更` / `✅ 已完成：N 项变更` / `✅ 已更新：…` / `ℹ 无变更，上游有 N 项更新` / `⚠ 已完成，但有 N 项需处理`），第二行是「过程：作业 …」，第三行是「客户端：命令卡已加载 / 未加载」；卡片本身第二行直接给影响面或具体问题（不重复状态与耗时），`⚠` 用琥珀色「需处理」态，`后台作业` / `未确认` / `客户端未加载` 是 chips。无事可做时也写清「本次没有变更，未创建后台任务（原因）」，client half 没进页面时首行会直接标 `· 客户端未加载`（重启 dsh 生效）。作业结算时会弹一次完成提示（当前会话也弹），切走后另有未读点。`/skill-init` 只在**确定要写盘**时用 dsh 的问答卡确认一次（缺失/待修复），缓存过期只做只读检查不打断，`--yes` 可跳过；`--update` 是显式更新，不打断。技能来源默认缓存在 `$DSH_HOME/cache/skills-sources`，首次 clone、之后增量 fetch，安装不再每次整仓克隆。详见 [技能自举](./docs/skill-setup.md) 与 [过程可见](./docs/job-progress.md)。
 
 ## 安装
 
@@ -45,7 +45,7 @@ npx -y skills add morehao/agent-skills --skill tech-design -g -a universal -y
 dsh plugin --profile <profile> add @morehao/dsh-commands
 ```
 
-装完在 dsh 里执行 `/skill-init`：检查 `git-kit` / `handoff` / `disk-cleanup`，缺失则从本地缓存（首次自动 clone）用 `skills` CLI 全局安装并软链进 `$DSH_HOME/skills`（默认 `~/.dsh/skills`）；已托管且缓存 TTL 内与 lock 一致则跳过，TTL 过期会检查上游，**有更新只报告不重装**。确定要写盘（装缺失/修链/已知更新）时会先弹一次确认，`/skill-init --yes` 可跳过；要把装好的技能跟到最新用 `/skill-init --update`。安装结果仍是标准的 `~/.agents/skills` + `.skill-lock.json`，其他 agent 可以继续用 `npx skills`。
+装完在 dsh 里执行 `/skill-init`：检查 `git-kit` / `handoff` / `disk-cleanup`，缺失则从本地缓存（首次自动 clone）用 `skills` CLI 全局安装并软链进 `$DSH_HOME/skills`（默认 `~/.dsh/skills`）；已托管且缓存 TTL 内与 lock 一致则跳过，TTL 过期会检查上游，**有更新只报告不重装**。确定要写盘（装缺失/修链）时会先弹一次确认，`/skill-init --yes` 可跳过；要把装好的技能跟到最新用 `/skill-init --update`。安装结果仍是标准的 `~/.agents/skills` + `.skill-lock.json`，其他 agent 可以继续用 `npx skills`。
 
 装好后直接输入 `/` 选择命令，例如 `/git-message 修复登录超时`、`/git-commit-push`、`/handoff`、`/cleanup`（不带参数时先给编号选项）。
 

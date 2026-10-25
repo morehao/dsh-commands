@@ -937,17 +937,9 @@ try {
 		freshness: { cacheSource: true, fresh: true, changed: ["handoff"] },
 	};
 	check(
-		needsConfirmation({ name: "skill-init" }, changedOnlyPlan) === true,
-		"confirm：plan 已知上游有更新（要重装）时提问",
+		needsConfirmation({ name: "skill-init" }, changedOnlyPlan) === false,
+		"confirm：上游有更新只 warn，不提问",
 		JSON.stringify(changedOnlyPlan),
-	);
-	const changedRequest = confirmationRequest({ name: "skill-init" }, changedOnlyPlan);
-	check(
-		changedRequest.options.some((option) => option.label === "处理全部") &&
-			!changedRequest.options.some((option) => option.label === "联网检查") &&
-			changedRequest.question.includes("更新"),
-		"confirm：不再出现「联网检查」选项",
-		JSON.stringify(changedRequest),
 	);
 
 	const pendingState = { name: "git-kit", state: "missing", isSymlink: false, isDirectory: false };
@@ -959,12 +951,12 @@ try {
 		JSON.stringify(plannedOnly),
 	);
 	const plannedWithChanged = installTargets({
-		pending: [pendingState, unmanagedState],
+		pending: [pendingState],
 		freshness: { fresh: true, changed: ["handoff", "disk-cleanup"] },
 	});
 	check(
-		JSON.stringify(plannedWithChanged) === JSON.stringify(["git-kit", "handoff", "disk-cleanup"]),
-		"init：plan 已知上游更新的托管技能也进写盘集合（去重）",
+		JSON.stringify(plannedWithChanged) === JSON.stringify(["git-kit"]),
+		"init：上游更新不进写盘集合（只报告）",
 		JSON.stringify(plannedWithChanged),
 	);
 	const plannedFromStale = installTargets({ pending: [], freshness: { fresh: false, changed: undefined } });
@@ -974,7 +966,7 @@ try {
 		JSON.stringify(plannedFromStale),
 	);
 
-	// plan 已知更新 → 只重装这些，不再等运行时发现，也不扩大写盘范围。
+	// plan 已知更新 → 只报告、不重装、不调 CLI（重装走 --update）。
 	const managedNow = await planSkillOperation("skill-init", COMMANDS, "");
 	const changedPlan = {
 		...managedNow,
@@ -983,15 +975,21 @@ try {
 	};
 	const callsBeforeChanged = await stubCalls();
 	const changedText = await runSkillInit(COMMANDS, { plan: changedPlan });
-	const changedArgv = JSON.parse((await readFile(stubLog, "utf8")).trim().split("\n").pop());
 	check(
-		(await stubCalls()) === callsBeforeChanged + 1 &&
-			changedArgv.filter((arg) => arg === "--skill").length === 1 &&
-			changedArgv.includes("handoff"),
-		"init：plan 已知的上游更新会被重装（只传该项）",
-		JSON.stringify(changedArgv),
+		(await stubCalls()) === callsBeforeChanged,
+		"init：plan 已知的上游更新不调用 CLI",
+		String(await stubCalls()),
 	);
-	check(changedText.startsWith("✅ 已完成"), "init：重装后首行是完成结论", changedText);
+	check(
+		changedText.startsWith("ℹ 无变更，上游有 1 项更新"),
+		"init：上游更新只报告，首行给出数量",
+		changedText,
+	);
+	check(
+		changedText.includes("运行 /skill-init --update 更新"),
+		"init：给出 --update 下一步",
+		changedText,
+	);
 
 	// ---- 12) 客户端卡自证：client half 没加载时必须写在回执里 -----------------
 	// 真实故障：desktop host 先启动、插件后安装，client half 不进 boot graph，

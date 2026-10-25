@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### 变更
+
+- **plan 已知的上游更新改为只警告、不重装**：`/skill-init` 的写盘集合只剩缺失/待修复项，`changed` 不再触发确认、不再在缓存命中时重装；回执首行仍给 `ℹ 无变更，上游有 N 项更新` 与 `--update` 指引。`/skill-init --update` 仍是唯一重装入口。
+
 本文件记录 `@morehao/dsh-commands` 的发布历史。`v0.1.0`–`v0.1.7` 由旧仓
 [`morehao/ai-kit`](https://github.com/morehao/ai-kit) 的 `commands-dsh/` 目录发布，
 2026-10 起在本仓发布；npm 包名未变，版本号连续。

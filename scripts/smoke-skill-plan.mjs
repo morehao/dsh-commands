@@ -110,23 +110,22 @@ try {
 		check(init.confirm.needs === false, "2. 全托管：不需要确认", JSON.stringify(init.confirm));
 	}
 
-	// ---- 3) managed + changed（P1a 仍进 install）---------------------------
+	// ---- 3) managed + changed（P1b：只 warn，不写盘）-----------------------
 	await reset({ canonical: names, links: names });
 	{
 		const { snapshot, plan } = await observe();
 		snapshot.cache.changed = ["handoff"];
 		const init = plan("init");
+		const action = init.actions.find((entry) => entry.name === "handoff");
+		check(action?.type === "warn" && action?.writes === false, "3. 上游更新：changed 只 warn，零写", JSON.stringify(init.actions));
+		check(actionsOf(init, "install").length === 0, "3. 上游更新：不进写盘集合", JSON.stringify(init.actions));
 		check(
-			JSON.stringify(actionsOf(init, "install")) === JSON.stringify(["handoff"]),
-			"3. 上游更新：changed 进 install（P1a 旧语义）",
-			JSON.stringify(init.actions)
+			action?.detail.includes("未安装") && action?.detail.includes("--update"),
+			"3. 上游更新：提示本次不装、用 --update",
+			JSON.stringify(action)
 		);
-		check(
-			init.actions.find((action) => action.name === "handoff")?.detail.includes("上游有更新"),
-			"3. 上游更新：detail 标明将重装",
-			JSON.stringify(init.actions)
-		);
-		check(init.confirm.needs === true, "3. 上游更新：需要确认", JSON.stringify(init.confirm));
+		check(init.confirm.needs === false, "3. 上游更新：不触发确认", JSON.stringify(init.confirm));
+		check(init.skipReason === "已全部托管，无需安装", "3. 上游更新：只读结论不建作业", String(init.skipReason));
 	}
 
 	// ---- 4) foreign-link ----------------------------------------------------
@@ -306,10 +305,12 @@ try {
 		const init = plan("init");
 		check(snapshot.backend === "cli", "14. backend=cli：快照记录后端", String(snapshot.backend));
 		check(
-			init.actions.every((action) => action.type !== "delegate") && actionsOf(init, "install").includes("handoff"),
-			"14. backend=cli：忽略 console 记录，按 self 更新",
+			init.actions.every((action) => action.type !== "delegate") &&
+				init.actions.find((action) => action.name === "handoff")?.type === "warn",
+			"14. backend=cli：忽略 console 记录，按 self 只 warn 上游更新",
 			JSON.stringify(init.actions)
 		);
+		check(init.confirm.needs === false, "14. backend=cli：上游更新不触发确认", JSON.stringify(init.confirm));
 		delete process.env.DSH_COMMANDS_SKILL_BACKEND;
 	}
 
