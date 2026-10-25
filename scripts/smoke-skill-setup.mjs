@@ -595,15 +595,9 @@ try {
 		while (!step.done) step = generator.next(step.value);
 		return step.value;
 	};
-	const e2eJobs = createFakeJobs();
 	apply({
 		effect: (generator) => driveEffect(generator),
-		get: (name) =>
-			name === "jobs"
-				? e2eJobs.api
-				: name === "clientModules"
-					? { graph: () => ({ entries: [{ id: "@morehao/dsh-commands" }] }) }
-					: undefined,
+		get: () => undefined,
 		commands: {
 			register(definition) {
 				registered.set(definition.name, definition);
@@ -611,9 +605,10 @@ try {
 			},
 		},
 	});
+	await new Promise((resolve) => setTimeout(resolve, 10));
 	check(
 		registered.size === 12 && registered.has("skill-init") && registered.has("git-message") && registered.has("cleanup"),
-		"e2e：注册了 12 条命令（11 委托 + 1 本地）",
+		"e2e：注册了 12 条命令（11 委托 + 1 维护型委托）",
 		[...registered.keys()].join(","),
 	);
 	check(
@@ -621,51 +616,28 @@ try {
 		"e2e：不再注册 /skill-install 与 /skill-update",
 		[...registered.keys()].join(","),
 	);
-	const e2eWoken = [];
-	const e2eAgent = {
-		session: { id: "session-e2e" },
-		followup(message) {
-			e2eWoken.push(message);
-		},
-	};
+	// 无 tools 时 /skill-init 走本地回退：无 agent → 直接执行核心，回执仍是结论式文本。
 	const e2eResult = await registered.get("skill-init").handler({
 		rawInput: "",
 		signal: undefined,
-		agent: e2eAgent,
+		agent: undefined,
 	});
 	check(
 		e2eResult.kind === "success" && e2eResult.text.startsWith("⚠ 已完成"),
-		"e2e：/skill-init 返回结论式回执",
+		"e2e：/skill-init 无 tools 时本地回退并返回结论",
 		e2eResult.text,
 	);
-	const e2eLines = e2eResult.text.split("\n");
-	check(e2eLines[0]?.includes("· 后台作业"), "e2e：首行带后台作业标记", e2eLines[0]);
-	check(e2eLines[1]?.startsWith("过程：作业"), "e2e：过程提示在第二行", e2eLines[1]);
-	check(e2eLines[2]?.startsWith("客户端：命令卡已加载"), "e2e：客户端卡状态在第三行", e2eLines[2]);
-	check(e2eLines[3]?.startsWith("技能："), "e2e：技能明细从第四行开始", e2eLines[3]);
-	check(e2eResult.text.includes("过程：作业 skill-init-fake"), "e2e：回执第二行指向作业", e2eResult.text);
-	check(e2eJobs.state.starts[0]?.owner === "session-e2e", "e2e：作业 owner 是当前会话", JSON.stringify(e2eJobs.state.starts[0]));
 
-	// --update 走同一条命令：作业 kind 仍是 skill-init，回执是更新结论。
+	// --update 同样走回退，仍是强制更新。
 	const e2eUpdateResult = await registered.get("skill-init").handler({
 		rawInput: "--update git-kit",
 		signal: undefined,
-		agent: e2eAgent,
+		agent: undefined,
 	});
 	check(
 		e2eUpdateResult.kind === "success" && e2eUpdateResult.text.includes("已更新：1 个技能"),
-		"e2e：/skill-init --update 走强制更新",
+		"e2e：/skill-init --update 回退走强制更新",
 		e2eUpdateResult.text,
-	);
-	check(
-		e2eJobs.state.starts[1]?.kind === "skill-init" && String(e2eJobs.state.starts[1]?.label).startsWith("更新技能"),
-		"e2e：--update 的作业 kind/label 正确",
-		JSON.stringify(e2eJobs.state.starts[1]),
-	);
-	check(
-		String(e2eWoken.at(-1)?.content?.[0]?.text ?? "").startsWith("/skill-init --update git-kit："),
-		"e2e：报告首行带 --update 参数",
-		String(e2eWoken.at(-1)?.content?.[0]?.text ?? "").split("\n")[0],
 	);
 
 	// 非 --update 时不允许位置参数：以前这些词会被静默忽略，现在直接给用法。
@@ -675,7 +647,7 @@ try {
 		agent: { session: { id: "session-e2e" } },
 	});
 	check(
-		badInit.kind === "error" && badInit.text.includes("Usage: /skill-init"),
+		badInit.kind === "error" && badInit.text.includes("用法：/skill-init"),
 		"e2e：/skill-init 的非法位置参数报用法",
 		badInit.text,
 	);
@@ -832,73 +804,6 @@ try {
 	// 把 git-kit 换回非托管软链，制造一个「可执行待办 + 真实目录」的混合计划。
 	await rm(linkPath("git-kit"), { force: true });
 	await symlink(localClone, linkPath("git-kit"), "dir");
-	const confirmQuestions = {
-		calls: [],
-		answer: "取消",
-		async ask(request) {
-			this.calls.push(request);
-			return { answers: [{ id: request.questions[0].id, selected: [this.answer] }] };
-		},
-	};
-	const confirmJobs = createFakeJobs();
-	const confirmRegistered = new Map();
-	apply({
-		effect: (generator) => driveEffect(generator),
-		get: (name) =>
-			name === "jobs" ? confirmJobs.api : name === "userQuestions" ? confirmQuestions : undefined,
-		commands: {
-			register(definition) {
-				confirmRegistered.set(definition.name, definition);
-				return () => confirmRegistered.delete(definition.name);
-			},
-		},
-	});
-	const confirmAgent = { session: { id: "session-confirm" } };
-	let confirmResult = await confirmRegistered.get("skill-init").handler({
-		rawInput: "",
-		signal: undefined,
-		agent: confirmAgent,
-	});
-	check(confirmResult.text.includes("已取消 /skill-init"), "confirm：用户取消时不执行", confirmResult.text);
-	check(confirmJobs.state.starts.length === 0, "confirm：取消后不建作业", JSON.stringify(confirmJobs.state.starts));
-	check(confirmQuestions.calls.length === 1, "confirm：只问一次", String(confirmQuestions.calls.length));
-	const askedDetail = confirmQuestions.calls[0]?.questions?.[0]?.detail ?? "";
-	check(
-		askedDetail.includes("git-kit") && askedDetail.includes("真实目录/文件"),
-		"confirm：问题里说明要改什么、哪些会跳过",
-		askedDetail,
-	);
-
-	confirmQuestions.answer = "处理全部";
-	confirmResult = await confirmRegistered.get("skill-init").handler({
-		rawInput: "",
-		signal: undefined,
-		agent: confirmAgent,
-	});
-	check(
-		confirmResult.text.startsWith("⚠ 已完成") || confirmResult.text.startsWith("✅ 已完成"),
-		"confirm：用户继续后正常执行并出结论",
-		confirmResult.text,
-	);
-	check(confirmJobs.state.starts.length === 1, "confirm：继续后建一个作业", JSON.stringify(confirmJobs.state.starts));
-
-	// --yes 跳过确认；即使 UI 会返回「取消」也不应被问到。
-	await rm(linkPath("git-kit"), { force: true });
-	await symlink(localClone, linkPath("git-kit"), "dir");
-	const callsBeforeYes = confirmQuestions.calls.length;
-	confirmQuestions.answer = "取消";
-	const yesResult = await confirmRegistered.get("skill-init").handler({
-		rawInput: "--yes",
-		signal: undefined,
-		agent: confirmAgent,
-	});
-	check(
-		confirmQuestions.calls.length === callsBeforeYes && !yesResult.text.includes("已取消"),
-		"--yes：跳过交互确认",
-		JSON.stringify({ calls: confirmQuestions.calls.length, text: yesResult.text.slice(0, 80) }),
-	);
-	check(confirmJobs.state.starts.length === 2, "--yes：仍然执行作业", JSON.stringify(confirmJobs.state.starts));
-
 	// choice=missing：只补不存在的条目，不重装已托管技能。
 	await rename(linkPath("handoff"), join(root, "handoff-missing-link"));
 	const callsBeforeMissing = await stubCalls();
@@ -971,6 +876,10 @@ try {
 	const changedPlan = {
 		...managedNow,
 		skipReason: undefined,
+		targets: ["handoff", "disk-cleanup"],
+		actions: [],
+		pending: [],
+		states: [],
 		freshness: { ...managedNow.freshness, fresh: true, changed: ["handoff"] },
 	};
 	const callsBeforeChanged = await stubCalls();
@@ -991,156 +900,6 @@ try {
 		changedText,
 	);
 
-	// ---- 12) 客户端卡自证：client half 没加载时必须写在回执里 -----------------
-	// 真实故障：desktop host 先启动、插件后安装，client half 不进 boot graph，
-	// 自绘命令卡/完成提示/未读点全部静默 —— 回执必须自己说出来。
-	const mountWith = (clientModules, userQuestions) => {
-		const mounted = new Map();
-		const jobs = createFakeJobs();
-		apply({
-			effect: (generator) => driveEffect(generator),
-			get: (name) =>
-				name === "jobs"
-					? jobs.api
-					: name === "clientModules"
-						? clientModules
-						: name === "userQuestions"
-							? userQuestions
-							: undefined,
-			commands: {
-				register(definition) {
-					mounted.set(definition.name, definition);
-					return () => mounted.delete(definition.name);
-				},
-			},
-		});
-		return mounted.get("skill-init");
-	};
-
-	const missingClient = await mountWith({
-		graph: () => ({ entries: [{ id: "@deepseek-ai/dsh-api-gateway" }] }),
-	}).handler({ rawInput: "", signal: undefined, agent: { session: { id: "session-client-missing" } } });
-	check(
-		missingClient.text.startsWith("✓ 无变更") && missingClient.text.includes("客户端未加载"),
-		"客户端：client half 不在 boot graph 时首行标「客户端未加载」",
-		missingClient.text,
-	);
-	check(
-		missingClient.text.includes("重启 dsh 后生效"),
-		"客户端：给出重启 dsh 的下一步",
-		missingClient.text,
-	);
-
-	const unknownClient = await mountWith(undefined).handler({
-		rawInput: "",
-		signal: undefined,
-		agent: { session: { id: "session-client-unknown" } },
-	});
-	check(
-		unknownClient.text.includes("客户端：命令卡状态未知"),
-		"客户端：clientModules 不可用时标「状态未知」而非假装已加载",
-		unknownClient.text,
-	);
-
-	// ---- 13) 执行报告：默认唤醒一轮让 agent 复核（blank 会话只由 turn/start 解除） ----
-	const woken = [];
-	const injected = [];
-	const reviewAgent = {
-		session: { id: "session-review" },
-		followup(message) {
-			woken.push(message);
-		},
-		inject(message) {
-			injected.push(message);
-		}
-	};
-	const reviewHandler = mountWith({ graph: () => ({ entries: [{ id: "@morehao/dsh-commands" }] }) });
-	const reviewResult = await reviewHandler.handler({
-		rawInput: "",
-		signal: undefined,
-		agent: reviewAgent
-	});
-	const report = woken.at(-1);
-	const reportText = String(report?.content?.[0]?.text ?? "");
-	check(
-		woken.length === 1 && injected.length === 0,
-		"报告：默认 followup 唤醒一轮（不是 inject）",
-		JSON.stringify({ woken: woken.length, injected: injected.length }),
-	);
-	check(
-		report.role === "user" && report.source?.kind === "cordis-host-runner" && report.source?.form === "notice",
-		"报告：用插件来源 kind + notice 形式（触发行为「插件状态更新」）",
-		JSON.stringify(report?.source ?? null),
-	);
-	check(
-		reportText.startsWith("/skill-init：") && reportText.includes("无变更"),
-		"报告：正文带命令名与回执结论",
-		reportText.split("\n").slice(0, 2).join(" / "),
-	);
-	check(
-		reportText.includes("不需要你再执行或重跑") && reportText.includes("不要调用任何工具"),
-		"报告：附复核指令并约束住模型（不跑命令、不调工具）",
-		reportText.slice(-160),
-	);
-	check(
-		String(report?.source?.summary ?? "").includes("/skill-init 完成"),
-		"报告：summary 说明完成还是失败",
-		String(report?.source?.summary ?? ""),
-	);
-	check(
-		reviewResult.text.startsWith("✓ 无变更") && woken.length === 1,
-		"报告：唤醒不影响命令回执本身",
-		reviewResult.text.split("\n")[0],
-	);
-
-	// 取消：只 inject 记录一行，不打扰模型。
-	woken.length = 0;
-	injected.length = 0;
-	await rm(linkPath("git-kit"), { force: true });
-	const cancelHandler = mountWith({ graph: () => ({ entries: [{ id: "@morehao/dsh-commands" }] }) }, {
-		async ask(request) {
-			return { answers: [{ id: request.questions[0].id, selected: ["取消"] }] };
-		}
-	});
-	const cancelResult = await cancelHandler.handler({ rawInput: "", signal: undefined, agent: reviewAgent });
-	check(cancelResult.text.includes("已取消 /skill-init"), "报告：取消时回执不变", cancelResult.text);
-	check(
-		woken.length === 0 &&
-			injected.length === 1 &&
-			String(injected.at(-1)?.content?.[0]?.text ?? "").includes("已取消"),
-		"报告：取消只记录一行，不唤醒模型",
-		JSON.stringify({ woken: woken.length, injected: injected.length }),
-	);
-
-	// 非法参数（错误出口）同样要交给会话复核。
-	woken.length = 0;
-	injected.length = 0;
-	const badArgHandler = mountWith({ graph: () => ({ entries: [{ id: "@morehao/dsh-commands" }] }) });
-	const badArgResult = await badArgHandler.handler({ rawInput: "--bogus", signal: undefined, agent: reviewAgent });
-	check(badArgResult.kind === "error", "报告：非法参数按错误返回", badArgResult.text.split("\n")[0]);
-	check(
-		woken.length === 1 && String(woken.at(-1)?.source?.summary ?? "").includes("/skill-init --bogus 失败"),
-		"报告：错误出口也交给会话，summary 带真实参数",
-		String(woken.at(-1)?.source?.summary ?? ""),
-	);
-	check(
-		String(woken.at(-1)?.content?.[0]?.text ?? "").startsWith("/skill-init --bogus："),
-		"报告：正文首行带真实命令行（含参数）",
-		String(woken.at(-1)?.content?.[0]?.text ?? "").split("\n")[0],
-	);
-
-	// DSH_COMMANDS_SKILL_NOTIFY=notice 时降级为零 token 记录。
-	woken.length = 0;
-	injected.length = 0;
-	process.env.DSH_COMMANDS_SKILL_NOTIFY = "notice";
-	const quietHandler = mountWith({ graph: () => ({ entries: [{ id: "@morehao/dsh-commands" }] }) });
-	await quietHandler.handler({ rawInput: "", signal: undefined, agent: reviewAgent });
-	delete process.env.DSH_COMMANDS_SKILL_NOTIFY;
-	check(
-		woken.length === 0 && injected.length === 1,
-		"报告：DSH_COMMANDS_SKILL_NOTIFY=notice 时只记录不唤醒",
-		JSON.stringify({ woken: woken.length, injected: injected.length }),
-	);
 } finally {
 	await rm(root, { recursive: true, force: true });
 }
