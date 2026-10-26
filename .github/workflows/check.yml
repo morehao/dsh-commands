@@ -48,7 +48,7 @@ jobs:
       - name: 打包内容白名单
         run: npm run check:pack
 
-      # 三个离线冒烟的唯一入口（等价 npm test）：client half 接线（命令卡 / 完成提示 / 未读点注册到约定槽）
-      # + 技能自举（stub 顶替 skills CLI）+ 技能缓存（本地 git）。CI 与本地跑的是同一串脚本，不各列一份。
+      # 全部离线冒烟的唯一入口（等价 npm test）：技能自举（stub 顶替 skills CLI）+ 工具/命令层
+      # + 技能缓存（本地 git）+ 契约校验（临时 HOME）。CI 与本地跑的是同一串脚本，不各列一份。
       - name: 冒烟（npm test）
         run: npm test

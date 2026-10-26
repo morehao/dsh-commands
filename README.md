@@ -47,6 +47,8 @@ dsh plugin --profile <profile> add @morehao/dsh-commands
 
 装完在 dsh 里执行 `/skill-init`：检查 `git-kit` / `handoff` / `disk-cleanup`，缺失则从本地缓存（首次自动 clone）用 `skills` CLI 全局安装并软链进 `$DSH_HOME/skills`（默认 `~/.dsh/skills`）；已托管且缓存 TTL 内与 lock 一致则跳过，TTL 过期会检查上游，**有更新只报告不重装**。确定要写盘（装缺失/修链）时工具会先弹一次确认，`/skill-init --yes` 可跳过；要把装好的技能跟到最新用 `/skill-init --update`。安装结果仍是标准的 `~/.agents/skills` + `.skill-lock.json`，其他 agent 可以继续用 `npx skills`。
 
+这条链路与 agent-skills 自己的发布模型同向：仓库 → 本源 `~/.agents/skills`（`skills-install.sh`）→ 各 agent 目录软链（`skills-fanout.sh`）。所以已经跑过那两个脚本的机器，`/skill-init` 会判定为已托管并直接跳过——两边用的都是 skills CLI + 同一份 lock，不会互相覆盖。
+
 装好后直接输入 `/` 选择命令，例如 `/git-message 修复登录超时`、`/git-commit-push`、`/handoff`、`/cleanup`（不带参数时先给编号选项）。
 
 手工准备技能、可达镜像与环境变量的说明见 [技能自举](./docs/skill-setup.md)；`link:` 本地开发见 [开发与测试](./docs/development.md)。
@@ -55,8 +57,8 @@ dsh plugin --profile <profile> add @morehao/dsh-commands
 
 每条命令注册到 `ctx.commands`。执行时 handler 校验必填输入，构造一条 user 消息经 `invocation.agent.followup()` 注入当前会话，由 agent 加载对应 skill、按对应分支执行——交互确认步骤与自然语言触发完全一致。`COMMANDS` 表自包含，不读取任何仓库文件。
 
-- 编辑技能内容（`$DSH_HOME/skills/...`）**无需重启**，下次执行即生效。
-- 委托型命令执行前会确认依赖技能是否已安装（`$DSH_HOME/skills`、`$DSH_AGENTS_HOME/skills` 或 `~/.agents/skills`）；缺失时不注入消息，直接返回 `/skill-init` 与手工 `npx` 两条修复路径。
+- 编辑技能内容（本源 `~/.agents/skills/...`，或 `$DSH_HOME/skills` 下的软链）**无需重启**，下次执行即生效。
+- 委托型命令执行前会确认依赖技能是否已安装（`$DSH_HOME/skills`、`$DSH_AGENTS_HOME/skills` 或 `~/.agents/skills`，顺序固定）；缺失时不注入消息，直接返回 `/skill-init` 与手工 `npx` 两条修复路径。
 - 维护型委托 `/skill-init`（含 `--update`）注入一条 user 消息，由 agent 调用 `skill_init` 工具（`mode=init/update/check`、`names`、`yes`）：默认先确认；无确认通道时只返回计划、不写盘；`yes=true` 只跳过确认，不跳过所有权/真实目录/指纹检查。
 - 命令与工具共用 `lib/skill-setup.js` 的 observe/plan/apply/verify；无 `tools`、无 `agent.followup` 或注入失败时，命令回退到 `runSkillInit` / `runSkillUpdate`，旧宿主仍可用。
 - 修改插件源码（含 `COMMANDS` 表）需重启 dsh web；只有以 `link:` 方式接入时才改源码即生效，npm 版是拷贝。
@@ -67,14 +69,15 @@ dsh plugin --profile <profile> add @morehao/dsh-commands
 ## 开发
 
 ```bash
-npm run check                           # 本地全量：语法扫描 / 命名 / 打包 / Release 投影 + 三个冒烟
-npm test                                # 三个冒烟（stub + 本地 git，不联网）
+npm run check                           # 本地全量：语法扫描 / 命名 / 打包 / Release 投影 + 全部离线冒烟
+npm test                                # 全部离线冒烟（stub + 本地 git，不联网）
 node scripts/check-skill-contract.mjs   # 命令 → 技能分支的跨仓契约（需技能已安装）
 node scripts/smoke-skill-setup.mjs      # 技能自举 + 过程可见（stub，不联网）
 node scripts/smoke-skill-cache.mjs      # 来源缓存 / TTL / lock 回写（本地 git，不联网）
+node scripts/smoke-skill-contract.mjs   # 契约校验：技能根顺序 / 缺分支 / 缺技能去重（临时 HOME）
 ```
 
-CI 在 PR 上校验发布脚本语法、全量插件语法（扫 `lib/`、`scripts/` 与 locale JSON）、三处命名一致、打包白名单、Release 正文投影与三个离线冒烟（`npm test`），用的就是上面这几个 npm script。扩展命令、测试细节与命名约定见 [开发与测试](./docs/development.md)。
+CI 在 PR 上校验发布脚本语法、全量插件语法（扫 `lib/`、`scripts/` 与 locale JSON）、三处命名一致、打包白名单、Release 正文投影与全部离线冒烟（`npm test`），用的就是上面这几个 npm script。扩展命令、测试细节与命名约定见 [开发与测试](./docs/development.md)。
 
 ## 发布
 

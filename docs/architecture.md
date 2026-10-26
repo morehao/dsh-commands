@@ -52,11 +52,13 @@ export const REQUIRED_SKILLS = Object.freeze(referencedSkills(COMMANDS));
 
 user 消息由 `userMessage()` **手工构造**，形态与官方 `createUserMessage` 的契约一致（`role` / `source` / `content` / `id` 齐全，深冻结），因此本模块不依赖任何 `@deepseek-ai/*` 运行时 import。`source` 字段必填——dsh 的 Message 契约会读 `message.source.kind`，缺失会在 agent 回合崩溃。
 
-### handoff 的 readFallback
+### handoff 的 readFallback（历史兼容）
 
-`handoff` 的 `SKILL.md` 标了 `disable-model-invocation`（只允许用户手动调用），dsh 会把它移出模型可见的技能目录，且 `skill` 工具直接拒绝加载。所以这条命令在 `COMMANDS` 里置 `readFallback: true`，注入文本会带一条兜底路径：
+`handoff` 的 `SKILL.md` 在 2026-10-25 之前标了 `disable-model-invocation`（只允许用户手动调用），dsh 会把它移出模型可见的技能目录，且 `skill` 工具直接拒绝加载。agent-skills #51 已移除该标记，`handoff` 恢复成模型可见、可自行触发；本插件仍保留 `readFallback: true`，让装了旧版技能目录的机器还能跑通，新装环境不会走到这条兜底。注入文本给的是一条按技能根顺序可用的兜底路径：
 
-> 若 `skill` 工具报 `not available for model invocation`，改用 `read` 工具读取 `$DSH_HOME/skills/handoff/SKILL.md`（`DSH_HOME` 通常为 `~/.dsh`），需要时再读同目录下的 `references/`。
+> 若 `skill` 工具报 `not available for model invocation`（技能被标为仅用户可调用；旧版 handoff 会这样），改用 `read` 工具读取技能文件：优先 `$DSH_HOME/skills/handoff/SKILL.md`（dsh 软链层），不存在时读本源 `~/.agents/skills/handoff/SKILL.md`，需要时再读同目录下的 `references/`。
+
+补本源路径是必须的：agent-skills #50 之后本源才是真实内容，`$DSH_HOME/skills` 只是 fanout 软链层，可能根本不存在。
 
 ### cleanup 的无参数语义
 
@@ -64,7 +66,7 @@ user 消息由 `userMessage()` **手工构造**，形态与官方 `createUserMes
 
 > 用户未附加说明：按 SKILL.md 第 0 步先给出编号选项（…），等用户选择后再继续；不要执行任何脚本，也不要替用户选默认项。
 
-带参数时则按 `confirm` 提示需要用户决策的事项（清理范围 / 清理项编码），与其它命令一致。
+带参数时则按 `confirm` 提示需要用户决策的事项（清理范围 / 清理项编码 `--only`），与其它命令一致。技能侧（#52 起）还要求报告区分「目录总量 / 本次可删量」、`--clean` 前先 `--dry-run` 复核，并且 agent 侧只用 `--only`、不用 `--all`；命令描述已同步这层含义。
 
 ## 会话记录：`recordInput`
 
@@ -86,7 +88,7 @@ dsh 只本地化它自己的 6 条一方命令：客户端 `HOST_DESCRIPTION_KEY
 
 ## 生效与重启
 
-- 编辑技能（`$DSH_HOME/skills/git-kit/`、`$DSH_HOME/skills/handoff/`、`$DSH_HOME/skills/disk-cleanup/`）**无需重启**，下次执行即生效——技能由 agent-skills 提供，与本插件版本无关。技能根有 watcher，安装完也免重启。
+- 编辑技能（本源 `~/.agents/skills/{git-kit,handoff,disk-cleanup}/`，或 `$DSH_HOME/skills` 下的软链）**无需重启**，下次执行即生效——技能由 agent-skills 提供，与本插件版本无关。技能根有 watcher，安装完也免重启。
 - 修改本插件 `lib/index.js`（含 `COMMANDS` 表）需重启 dsh web 生效。
 - **只有以 `link:` 方式接入时改源码才生效**：若 profile 里装的是 npm 版（`dsh plugin --profile web add @morehao/dsh-commands`），profile 下的 `node_modules` 是一份**拷贝**，改仓库源码不会生效，需先升版本发版再重装。
 
