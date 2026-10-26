@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [v0.3.1] - 2026-10-26
+
 ### 修复
 
 - **契约校验改用与运行期预检同一组技能根**：`scripts/check-skill-contract.mjs` 现在走 `skillRoots()`（`$DSH_HOME/skills` → `$DSH_AGENTS_HOME/skills` → 本源 `~/.agents/skills`）。agent-skills #50 把本源定为真实内容、`$DSH_HOME/skills` 只是 `skills-fanout.sh` 建的软链层；旧脚本只看软链层，在「已发布本源、还没 fanout」的机器上会把 11 条命令全判成技能缺失。缺技能改为按技能去重报一次，并列出查过的所有路径。
