@@ -28,7 +28,7 @@ await appendFile(process.env.STUB_LOG, JSON.stringify(argv) + "\\n");
 const source = argv[1];
 const skills = [];
 for (let i = 0; i < argv.length; i++) if (argv[i] === "--skill") skills.push(argv[++i]);
-const branches = { "git-kit": ["commit-push","commit-message","branch","pr-create","pr-merge","tag","release","slim","star-classify"], "disk-cleanup": ["cleanup"] };
+const branches = { "git-kit": ["commit-push","commit-message","branch","pr-create","pr-merge","tag","checkout-tag","release","slim","star-classify"], "disk-cleanup": ["cleanup"] };
 for (const name of skills) {
 	const dir = join(homedir(), ".agents", "skills", name);
 	await mkdir(dir, { recursive: true });

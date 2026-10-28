@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [v0.4.0] - 2026-10-28
+
+### 新增
+
+- **新增 `/git-checkout-tag` 命令**：适配 agent-skills #61（git-kit 新增 `checkout-tag` 分支，v0.3.4）。切到当前仓库的最新 tag（按版本号取最高，非 semver 退化为最近创建；也可指定 tag 名），默认切到 detached HEAD，**只切不改**、不新建分支/不提交/不推送；要基于该 tag 继续开发才另建分支。至此 git-kit 的 10 个分支（commit-push / commit-message / branch / pr-create / pr-merge / tag / checkout-tag / release / slim / star-classify）均已暴露为 dsh 命令。
+- 同步 README 命令表；契约校验冒烟的「条数」断言改为按 `COMMANDS.length` 动态生成，避免后续增删命令时再次漂移。
+
+> 注：`/cleanup`（disk-cleanup #58 新增的 `orphans` 卸载残留扫描等能力）与 `/handoff` 仍在各自既有单一分支内，映射无需改动，升级技能后自动获得。
+
 ## [v0.3.1] - 2026-10-26
 
 ### 修复

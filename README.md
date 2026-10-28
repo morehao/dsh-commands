@@ -17,6 +17,7 @@
 | `/git-pr-merge` | `[PR/MR 编号]` | git-kit → pr-merge |
 | `/git-release` | `[版本号或tag]` | git-kit → release |
 | `/git-tag` | `[tag名或分支名]` | git-kit → tag |
+| `/git-checkout-tag` | `[tag名]` | git-kit → checkout-tag（切到最新 tag，detached HEAD 只切不改） |
 | `/git-slim` | `[保留天数]` | git-kit → slim |
 | `/git-star-classify` | 无 | git-kit → star-classify |
 | `/handoff` | `[任务范围]` | handoff → print（只打印，不落盘） |
