@@ -80,7 +80,7 @@ try {
 		const result = run();
 		check(result.code === 0, "1. 只有本源 → 通过", result.stderr);
 		check(mention(result.stdout, `git-kit → ${join(canonical, "git-kit")}`), "1. 解析到本源目录", result.stdout);
-		check(mention(result.stdout, "契约校验通过：11 条命令 / 3 个技能"), "1. 汇总按技能去重", result.stdout);
+		check(mention(result.stdout, `契约校验通过：${COMMANDS.length} 条命令 / 3 个技能`), "1. 汇总按技能去重", result.stdout);
 	}
 
 	// ---- 2) 只有 $DSH_HOME/skills（fanout 关掉、手工放的副本） ----
@@ -119,7 +119,7 @@ try {
 		check(mention(result.stderr, join(canonical, "git-kit", "references", "commit-message.md")), "5. 指出缺失文件", result.stderr);
 	}
 
-	// ---- 6) 缺技能：按技能去重（git-kit 有 9 条命令），并列出所有查过的路径 ----
+	// ---- 6) 缺技能：按技能去重（git-kit 有多条命令，只报一次），并列出所有查过的路径 ----
 	await reset({ names: skills.filter((name) => name !== "handoff") });
 	{
 		const result = run({ DSH_HOME: dshHome });

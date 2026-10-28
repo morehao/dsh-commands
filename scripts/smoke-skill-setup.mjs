@@ -56,7 +56,7 @@ const source = argv[1];
 const skills = [];
 for (let i = 0; i < argv.length; i++) if (argv[i] === "--skill") skills.push(argv[++i]);
 if (skills.length === 0) skills.push("demo-a", "demo-b");
-const branches = { "git-kit": ["commit-push","commit-message","branch","pr-create","pr-merge","tag","release","slim","star-classify"], "disk-cleanup": ["cleanup"] };
+const branches = { "git-kit": ["commit-push","commit-message","branch","pr-create","pr-merge","tag","checkout-tag","release","slim","star-classify"], "disk-cleanup": ["cleanup"] };
 for (const name of skills) {
 	const dir = join(homedir(), ".agents", "skills", name);
 	await mkdir(dir, { recursive: true });
@@ -608,9 +608,13 @@ try {
 		},
 	});
 	await new Promise((resolve) => setTimeout(resolve, 10));
+	const { COMMANDS: e2eCommands } = await import("../lib/index.js");
 	check(
-		registered.size === 12 && registered.has("skill-init") && registered.has("git-message") && registered.has("cleanup"),
-		"e2e：注册了 12 条命令（11 委托 + 1 维护型委托）",
+		registered.size === e2eCommands.length + 1 &&
+			registered.has("skill-init") &&
+			registered.has("git-message") &&
+			registered.has("cleanup"),
+		`e2e：注册了 ${e2eCommands.length + 1} 条命令（${e2eCommands.length} 委托 + 1 维护型委托）`,
 		[...registered.keys()].join(","),
 	);
 	check(

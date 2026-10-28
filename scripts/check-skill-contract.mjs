@@ -23,7 +23,7 @@ const roots = skillRoots(process.env);
 
 const exists = (p) => access(p).then(() => true, () => false);
 
-/** 按技能归组，保持 COMMANDS 的声明顺序（git-kit 的 9 条命令只报一次缺技能）。 */
+/** 按技能归组，保持 COMMANDS 的声明顺序（git-kit 的多条命令只报一次缺技能）。 */
 const bySkill = new Map();
 for (const command of COMMANDS) {
 	const skill = command.skill ?? "git-kit";
