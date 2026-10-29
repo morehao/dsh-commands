@@ -9,11 +9,11 @@
 |---|---|---|---|
 | 委托型 | `COMMANDS`（`lib/index.js`） | agent 加载 skill 后执行 | `/git-message`、`/git-pr-create`、`/cleanup` |
 | 维护型委托 | `SKILL_INIT_DEF` + `makeSkillInitHandler()`（`lib/skill-command.js`） | agent 调用 `skill_init` 工具 | `/skill-init`（`--update` 是同一命令的更新分支） |
-| 维护型本地执行 | `PLUGIN_UPDATE_DEF` + `makePluginUpdateHandler()`（`lib/plugin-update-command.js`） | 本仓直接执行（只读） | `/plugin-update` |
+| 维护型委托（插件自身） | `PLUGIN_UPDATE_DEF` + `makePluginUpdateHandler()`（`lib/plugin-update-command.js`） | agent 调用 `plugin_update` 工具 | `/plugin-update`（`--apply` 一键更新） |
 
 - 委托型：handler 只校验输入 → 生成指令 → `invocation.agent.followup(userMessage(...))`；不在本仓跑技能脚本。
 - 维护型委托：handler 只解析 flags → 注入一条 user 消息 → agent 调用 `skill_init`；确认/进度/停止/写盘都在工具里。无 `tools`、无 `agent.followup` 或注入失败时回退到 `runSkillInit` / `runSkillUpdate`。
-- 维护型本地执行 `/plugin-update`：`lib/plugin-update.js` 只读查 npm 最新版（`lib/plugin-update-command.js` 渲染），**不注入消息、不写盘、不做一键安装**；`pluginManager` / `profileContext` 用 `ctx.get(...)` 惰性取，缺失时回退官方 registry 与省略 `--profile`。
+- 维护型委托 `/plugin-update`：handler 解析 `--apply` / `--yes` → 注入 user 消息 → agent 调 `plugin_update` 工具；工具内 `observe → plan → confirm → apply(挂 ctx.jobs) → verify`。更新走 `pluginManager.installBundle → already-installed → removeBundle → installBundle`，结果给「是否需重启」；成功后写 `state.json` 的 `pendingVersion`，重启后 `announcePluginUpdate()` 补发「已更新到 vX」。无 tools / 无 agent / 注入失败回退到 `lib/plugin-update.js` 的只读 `check()`。
 - 委托型 handler 在执行前会预检依赖技能是否落在 `$DSH_HOME/skills`、`$DSH_AGENTS_HOME/skills` 或 canonical `~/.agents/skills`；缺失时返回 `/skill-init` 与手工 `npx` 指引，不注入消息。`/skill-init` 自己就是安装器，不做预检。
 - `REQUIRED_SKILLS` 从 `COMMANDS` 推导（`skill ?? "git-kit"` 去重）；不要写第二份依赖清单。
 

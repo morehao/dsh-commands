@@ -1,10 +1,20 @@
 # Changelog
 
+## [v0.3.4] - 2026-10-29
+
+### 变更
+
+- **`/plugin-update` 改为委托式问答 + 一键更新**：命令注入 user 消息，由 agent 调用 `plugin_update` 工具，走 observe → plan → confirm → apply → verify。有更新时先弹问答确认（`更新` / `取消`），更新过程挂后台作业（作业行/面板可见、可停止），完成后提示「重启 DSH 生效」；无 tools / 无 agent 时回退本地只读检查。
+- **更新实现**：`pluginManager.installBundle → already-installed → removeBundle → installBundle`（P1 in-process），结果区分 `applied`（热生效） / `restart-required`。
+- **新增重启后提示**：更新成功写 `$DSH_HOME/dsh-commands/state.json` 的 `pendingVersion`；重启后 `announcePluginUpdate()` 检测版本变化并向活跃会话补一条「已更新到 vX」的 notice。
+- 新增 `lib/plugin-update-service.js`、`lib/tool-plugin-update.js`；`lib/plugin-update.js` 增加安装版本读取与状态读写；`scripts/smoke-plugin-update.mjs` 覆盖确认 / 更新 / 状态。
+
 ## [v0.3.3] - 2026-10-29
 
 ### 新增
 
 - **新增 `/plugin-update` 维护命令**：只读检查本插件自身在 npm 上的最新版本（当前 / 最新版本），有更新时给出可复制的 `dsh plugin --profile <p> add @morehao/dsh-commands@latest`。**不一键安装**：更新自己会 `remove` + `install` 重载插件，命令卡可能来不及结算；需要更新请退出 dsh 后按命令执行。核心为 `lib/plugin-update.js`（registry 计划继承宿主镜像/私源、8s 超时、5 分钟缓存、手写 semver 比较，零宿主 import），命令层为 `lib/plugin-update-command.js`；新增 `scripts/smoke-plugin-update.mjs` 并接入 `npm test`。
+
 ## [v0.3.2] - 2026-10-28
 
 ### 新增

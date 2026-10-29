@@ -18,7 +18,7 @@
 }
 ```
 
-维护型命令有两类：`/skill-init`（`--update` 走同一命令的更新分支，委托 `skill_init` 工具，见 [技能自举](./skill-setup.md)）与本地执行的 `/plugin-update`（只读检查插件自身的 npm 最新版）。`/skill-init` 依赖的技能集合由 `COMMANDS` 推导：
+维护型命令有两类：`/skill-init`（`--update` 走同一命令的更新分支，委托 `skill_init` 工具，见 [技能自举](./skill-setup.md)）与 `/plugin-update`（委托 `plugin_update` 工具，检查并一键更新插件自身）。`/skill-init` 依赖的技能集合由 `COMMANDS` 推导：
 
 ```js
 export const REQUIRED_SKILLS = Object.freeze(referencedSkills(COMMANDS));
@@ -41,11 +41,17 @@ export const REQUIRED_SKILLS = Object.freeze(referencedSkills(COMMANDS));
 
 命令与工具共用 `lib/skill-setup.js` 的 observe/plan/apply/verify；无 `tools`、无 `agent.followup` 或注入失败时，handler 回退到 `runSkillInit` / `runSkillUpdate`（本地执行，无 agent 回合），保证旧宿主不丢功能。
 
-`/plugin-update` 是另一条**维护型本地执行**命令：不进 `COMMANDS` 表、不注入消息、不写盘。`lib/plugin-update.js` 从自身 `package.json` 取包名/版本，优先用 `ctx.get("pluginManager").registries()` 给出的 registry 计划（含镜像/私源），依次查 `<pkg>/latest`（8s 超时、5 分钟缓存），再用手写 semver 比较判断是否落后；`lib/plugin-update-command.js` 只把结果渲染成「当前 / 最新 / 手动命令」。它**不一键安装**：更新自己会 `remove` + `install` 重载本插件，命令卡可能来不及结算。`pluginManager` / `profileContext` 都按可选服务惰性取，缺失时回退官方 registry。
+`/plugin-update` 是第二条**维护型委托**命令：handler 解析 `--apply` / `--yes` 后注入一条 user 消息，让 agent 调用 `plugin_update` 工具。工具内 observe → plan → confirm → apply → verify：
+
+- `lib/plugin-update.js` 从自身 `package.json` 取包名/版本，优先用 `ctx.get("pluginManager").registries()` 的 registry 计划（含镜像/私源），依次查 `<pkg>/latest`（8s 超时、5 分钟缓存），手写 semver 比较；另含状态文件 `$DSH_HOME/dsh-commands/state.json` 的读写。
+- `lib/plugin-update-service.js` 负责确认（`userQuestions.ask`）与执行：`installBundle → already-installed → removeBundle → installBundle`，返回 `application` / `restartRequired`。
+- `lib/tool-plugin-update.js` 负责流程编排；apply 时把安装挂到 `ctx.jobs`（作业行/面板可见、可停止），成功后写 `pendingVersion`。
+- 更新自身会 `remove` 本插件、触发重载，因此工具把安装放进后台作业，并用作业完成通知 + 启动提示兜底；`ctx.get("pluginManager")` / `userQuestions` / `jobs` 都按可选服务惰性取，缺失时回退本地只读检查或给手动命令。
+- 重启后 `announcePluginUpdate()` 比对 `lastSeenVersion` / `pendingVersion`，向活跃会话补一条「已更新到 vX」的 notice（best-effort，无活跃 agent 时等下一个）。
 
 ## 执行链路
 
-1. 用户从斜杠菜单执行命令，进入 `makeHandler(def)`（委托型）、`makeSkillInitHandler()`（维护型委托）或 `makePluginUpdateHandler()`（维护型本地执行）。
+1. 用户从斜杠菜单执行命令，进入 `makeHandler(def)`（委托型）、`makeSkillInitHandler()`（维护型委托）或 `makePluginUpdateHandler()`（维护型委托，插件自身更新）。
 2. 委托型：handler 校验必填输入（`required`），缺失时返回 `Usage: /<name> <hint>` 示例；随后预检依赖技能（`$DSH_HOME/skills`、`$DSH_AGENTS_HOME/skills` 或 canonical `~/.agents/skills`），缺失时不注入委托，直接返回 `/skill-init` 与手工 `npx` 两条修复路径。`/skill-init` 自己就是安装器，不做技能预检。
 3. `buildInstruction(def, input)`（或 `buildSkillInitMessage()`）生成一段委托指令。
 4. 指令被包装成一条 **user 消息**，通过 `invocation.agent.followup()` 注入当前会话。
