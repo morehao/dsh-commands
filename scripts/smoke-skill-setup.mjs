@@ -610,11 +610,12 @@ try {
 	await new Promise((resolve) => setTimeout(resolve, 10));
 	const { COMMANDS: e2eCommands } = await import("../lib/index.js");
 	check(
-		registered.size === e2eCommands.length + 1 &&
+		registered.size === e2eCommands.length + 2 &&
 			registered.has("skill-init") &&
+			registered.has("plugin-update") &&
 			registered.has("git-message") &&
 			registered.has("cleanup"),
-		`e2e：注册了 ${e2eCommands.length + 1} 条命令（${e2eCommands.length} 委托 + 1 维护型委托）`,
+		`e2e：注册了 ${e2eCommands.length + 2} 条命令（${e2eCommands.length} 委托 + 2 维护型）`,
 		[...registered.keys()].join(","),
 	);
 	check(

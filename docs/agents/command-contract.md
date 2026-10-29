@@ -3,15 +3,17 @@
 > 读这篇的时机：改 `COMMANDS` / `/skill-init`、命令描述、注入文案、`recordInput`，或排查「命令点了但行为不对」。
 > 完整背景见 [架构与原理](../architecture.md) 与 [开发与测试](../development.md)；这里只列 agent 必须照做的契约。
 
-## 1. 两类命令
+## 1. 三类命令
 
 | 类 | 位置 | 谁执行 | 典型命令 |
 |---|---|---|---|
 | 委托型 | `COMMANDS`（`lib/index.js`） | agent 加载 skill 后执行 | `/git-message`、`/git-pr-create`、`/cleanup` |
 | 维护型委托 | `SKILL_INIT_DEF` + `makeSkillInitHandler()`（`lib/skill-command.js`） | agent 调用 `skill_init` 工具 | `/skill-init`（`--update` 是同一命令的更新分支） |
+| 维护型本地执行 | `PLUGIN_UPDATE_DEF` + `makePluginUpdateHandler()`（`lib/plugin-update-command.js`） | 本仓直接执行（只读） | `/plugin-update` |
 
 - 委托型：handler 只校验输入 → 生成指令 → `invocation.agent.followup(userMessage(...))`；不在本仓跑技能脚本。
-- 维护型：handler 只解析 flags → 注入一条 user 消息 → agent 调用 `skill_init`；确认/进度/停止/写盘都在工具里。无 `tools`、无 `agent.followup` 或注入失败时回退到 `runSkillInit` / `runSkillUpdate`。
+- 维护型委托：handler 只解析 flags → 注入一条 user 消息 → agent 调用 `skill_init`；确认/进度/停止/写盘都在工具里。无 `tools`、无 `agent.followup` 或注入失败时回退到 `runSkillInit` / `runSkillUpdate`。
+- 维护型本地执行 `/plugin-update`：`lib/plugin-update.js` 只读查 npm 最新版（`lib/plugin-update-command.js` 渲染），**不注入消息、不写盘、不做一键安装**；`pluginManager` / `profileContext` 用 `ctx.get(...)` 惰性取，缺失时回退官方 registry 与省略 `--profile`。
 - 委托型 handler 在执行前会预检依赖技能是否落在 `$DSH_HOME/skills`、`$DSH_AGENTS_HOME/skills` 或 canonical `~/.agents/skills`；缺失时返回 `/skill-init` 与手工 `npx` 指引，不注入消息。`/skill-init` 自己就是安装器，不做预检。
 - `REQUIRED_SKILLS` 从 `COMMANDS` 推导（`skill ?? "git-kit"` 去重）；不要写第二份依赖清单。
 
@@ -29,7 +31,7 @@
 | `confirm` | 委托型 | 有参数时提示用户需确认的事项；默认是 git 语境 |
 | `readFallback` | 委托型 | 技能可能被 `disable-model-invocation` 拒绝加载时的 read 兜底（当前仅 `handoff`，属旧安装兼容；上游 #51 已移除该标记） |
 
-`recordInput` 不在每条声明里写：两类命令统一 `false`，由 `apply()` 固定。不要为了「记录参数」改回 `true`。
+`recordInput` 不在每条声明里写：三类命令统一 `false`，由 `apply()` 固定。不要为了「记录参数」改回 `true`。
 
 ## 3. 执行链路
 
