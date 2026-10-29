@@ -9,7 +9,8 @@
  *
  * 不依赖 dsh，也不跑真实安装。
  */
-import { readFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -24,10 +25,15 @@ function check(ok, label, detail) {
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
-const { SKILL_INIT_USAGE, parseSkillInitInput, buildSkillInitMessage, createUserMessage, makeSkillInitHandler } = await import(
+const { SKILL_INIT_USAGE, parseSkillInitInput, buildSkillInitMessage, createUserMessage, createNoticeMessage, setUserMessageFactory, makeSkillInitHandler } = await import(
 	join(here, "..", "lib", "skill-command.js")
 );
 const index = await import(join(here, "..", "lib", "index.js"));
+
+// 隔离：apply() 的版本提示会读写状态文件，用临时 HOME/DSH_HOME 避免碰真实 ~/.dsh。
+const sandbox = await mkdtemp(join(tmpdir(), "dsh-commands-skill-command-"));
+process.env.HOME = join(sandbox, "home");
+process.env.DSH_HOME = join(sandbox, "dsh");
 
 // ---- 1) parse ----------------------------------------------------------
 {
@@ -77,6 +83,22 @@ const index = await import(join(here, "..", "lib", "index.js"));
 		threw = true;
 	}
 	check(threw, "3. 空文本拒绝");
+}
+
+// ---- 3b) T4：官方消息工厂优先 -----------------------------------------
+{
+	let called = 0;
+	setUserMessageFactory((input) => {
+		called += 1;
+		return { id: "official", role: "user", source: input.source, content: input.content };
+	});
+	const message = createUserMessage("hi");
+	check(called === 1 && message.id === "official", "3b. 有官方工厂时优先官方实现");
+	const notice = createNoticeMessage("notice text");
+	check(called === 2 && notice.id === "official" && notice.source.form === "notice", "3b. notice 也走官方实现");
+	setUserMessageFactory(null);
+	const local = createUserMessage("hi");
+	check(typeof local.id === "string" && local.id !== "official", "3b. 传 null 恢复本地实现");
 }
 
 // ---- 4) handler --------------------------------------------------------
@@ -183,7 +205,16 @@ const index = await import(join(here, "..", "lib", "index.js"));
 	await new Promise((resolve) => setTimeout(resolve, 10));
 	const skillInit = registered.find((def) => def.name === "skill-init");
 	const pluginUpdate = registered.find((def) => def.name === "plugin-update");
-	check(effects === 1 && registered.length === index.COMMANDS.length + 2, "5. 命令只注册一次：COMMANDS + skill-init + plugin-update", JSON.stringify({ effects, count: registered.length }));
+	check(
+		effects === 0 && registered.length === index.COMMANDS.length + 2,
+		"5. 命令只注册一次：COMMANDS + skill-init + plugin-update（无 effect 包装）",
+		JSON.stringify({ effects, count: registered.length })
+	);
+	check(
+		registered.every((def) => typeof def.definitionId === "string" && def.definitionId.startsWith("dsh-commands:")),
+		"5. 每条命令都有 definitionId（dsh-commands: 前缀）",
+		JSON.stringify(registered.map((def) => def.definitionId))
+	);
 	check(pluginUpdate !== undefined && pluginUpdate.recordInput === false && typeof pluginUpdate.handler === "function", "5. /plugin-update 已注册（recordInput:false）", JSON.stringify(pluginUpdate && { name: pluginUpdate.name, recordInput: pluginUpdate.recordInput }));
 	check(skillInit !== undefined && skillInit.recordInput === false, "5. /skill-init recordInput:false", JSON.stringify(skillInit && { recordInput: skillInit.recordInput }));
 	check(skillInit.input?.hint === "[--update [技能名...]] [--yes]", "5. hint 保持", JSON.stringify(skillInit.input));
@@ -192,6 +223,68 @@ const index = await import(join(here, "..", "lib", "index.js"));
 	// 注意：不在这里调用真实 handler 的 fallback——那会跑 observe/apply，碰到真实 HOME。
 	// 回退路径由上面注入 fallback 的用例覆盖。
 }
+
+// ---- 6) T3：技能可用性（ctx.skills 优先，文件回退）--------------------
+{
+	const emptyProfile = { home: join(sandbox, "dsh-empty") };
+	const runApply = async (get) => {
+		const registered = [];
+		const ctx = { commands: { async register(def) { registered.push(def); } }, get: (name) => (name === "profileContext" ? emptyProfile : get(name)) };
+		await index.apply(ctx);
+		return registered;
+	};
+	const invoke = async (handler, rawInput = "x") => {
+		const messages = [];
+		const result = await handler({ rawInput, agent: { followup: (message) => messages.push(message) } });
+		return { result, messages };
+	};
+
+	// 6.1 registry 命中（可模型调用）：正常委托
+	{
+		const registered = await runApply((name) =>
+			name === "skills" ? { list: async () => [{ name: "git-kit", invocation: { modelInvocable: true, userInvocable: true } }] } : undefined
+		);
+		const def = registered.find((entry) => entry.name === "git-message");
+		const { result, messages } = await invoke(def.handler);
+		check(result.kind === "success" && messages.length === 1, "6.1 registry 命中：正常委托", JSON.stringify(result));
+	}
+	// 6.2 registry 明确没有该技能：报未安装
+	{
+		const registered = await runApply((name) => (name === "skills" ? { list: async () => [] } : undefined));
+		const def = registered.find((entry) => entry.name === "git-message");
+		const { result, messages } = await invoke(def.handler);
+		check(result.kind === "error" && /未安装/.test(result.text) && messages.length === 0, "6.2 registry 无该技能：报未安装", JSON.stringify(result));
+	}
+	// 6.3 registry.list 抛错：回退文件探测（临时 HOME 无技能 → 未安装）
+	{
+		const registered = await runApply((name) =>
+			name === "skills" ? { list: async () => { throw new Error("no provider"); } } : undefined
+		);
+		const def = registered.find((entry) => entry.name === "git-message");
+		const { result } = await invoke(def.handler);
+		check(result.kind === "error" && /未安装/.test(result.text), "6.3 registry 抛错：回退文件探测（临时 HOME 无技能 → 未安装）", JSON.stringify(result));
+	}
+	// 6.4 registry 命中但 modelInvocable:false 且非 readFallback：不可由模型调用
+	{
+		const registered = await runApply((name) =>
+			name === "skills" ? { list: async () => [{ name: "git-kit", invocation: { modelInvocable: false, userInvocable: true } }] } : undefined
+		);
+		const def = registered.find((entry) => entry.name === "git-message");
+		const { result } = await invoke(def.handler);
+		check(result.kind === "error" && /不可由模型调用/.test(result.text), "6.4 modelInvocable:false：报不可由模型调用", JSON.stringify(result));
+	}
+	// 6.5 handoff（readFallback:true）+ modelInvocable:false：仍注入
+	{
+		const registered = await runApply((name) =>
+			name === "skills" ? { list: async () => [{ name: "handoff", invocation: { modelInvocable: false, userInvocable: true } }] } : undefined
+		);
+		const def = registered.find((entry) => entry.name === "handoff");
+		const { result, messages } = await invoke(def.handler, "");
+		check(result.kind === "success" && messages.length === 1, "6.5 handoff readFallback：modelInvocable:false 仍注入", JSON.stringify(result));
+	}
+}
+
+await rm(sandbox, { recursive: true, force: true });
 
 console.log("");
 if (failures > 0) {

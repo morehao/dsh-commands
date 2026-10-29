@@ -35,13 +35,14 @@
 
 ## 3. 执行链路
 
-1. 用户执行命令，进入 `makeHandler(def)`。
+1. 用户执行命令，进入 `makeHandler(def, ctx)`。
 2. `required` 校验；缺失返回 `Usage: /<name> <hint>`，不注入消息。
-3. `buildInstruction(def, input)` 生成委托指令（`【dsh 命令 /xxx】`、用户请求、加载 skill 的指示）。
-4. `userMessage()` 手工构造 user 消息；`source` 必填，否则 dsh 的 Message 契约读 `message.source.kind` 时会崩。
-5. `invocation.agent.followup()` 注入当前会话。
-6. agent 用 `skill` 工具加载技能，按 `branch` 流程执行；需要决策先问用户。
-7. 命令卡片返回「已按 `<skill>` `<branch>` 分支委托执行…」。
+3. 可用性预检：优先 `ctx.get("skills").list({ cwd })`，目录不可用时回退文件探测；缺失/不可模型调用时不注入。
+4. `buildInstruction(def, input)` 生成委托指令（`【dsh 命令 /xxx】`、用户请求、加载 skill 的指示）。
+5. `userMessage()` 构造 user 消息：优先官方 `@deepseek-ai/dsh-llm` 的 `createUserMessage`（可选加载），无则回退等价的本地契约实现；`source` 必填，否则 dsh 的 Message 契约读 `message.source.kind` 时会崩。
+6. `invocation.agent.followup()` 注入当前会话。
+7. agent 用 `skill` 工具加载技能，按 `branch` 流程执行；需要决策先问用户。
+8. 命令卡片返回「已按 `<skill>` `<branch>` 分支委托执行…」。
 
 维护型 `/skill-init`：
 

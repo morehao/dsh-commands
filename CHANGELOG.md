@@ -1,5 +1,23 @@
 # Changelog
 
+## [v0.4.0] - 2026-10-29
+
+### 修复
+
+- **与 `dsh-skills-console` 0.6.0（state v4）兼容**：`lib/skills-console.js` 的 `readConsoleState` 现在读取 `version` 并归一化 `mode`——v1/v2 `off|on`、v3 `enabled`、v4 `enabled` + `auto|manual|hidden`，未来版本（>4）一律 `unknown`。`resolveOwnership` / `planOperation` / `checkContract` 对 `off/hidden/manual/unknown` 一律只读不写（`writes:false`），不再把「停用/仅手动/完全停用」误当成启用。
+- **委托型命令预检补上不可用原因**：控制台把技能设为停用 / 完全停用 / 仅手动 / 版本未知时，`/git-*`、`/handoff`、`/cleanup` 直接给出对应文案，而不是误报「未安装」或让 `skill` 工具加载失败。
+- **技能可用性判定改走 `ctx.skills`**：优先 `ctx.get("skills").list({ cwd })`（权威、已校验，能识别 `disable-model-invocation` 等被过滤的技能），目录不可用时回退原有文件探测；`handoff` 的 `readFallback` 兜底保留。
+- **`/plugin-update` 版本检查优先走 `pnpm view`**：继承 profile 的镜像 / 私源 / token，私有 registry 不再因裸 `fetch` 不读 `.npmrc` 而失败；拿不到再回退既有 registry 计划 + fetch。
+
+### 变更
+
+- **清单规范**：`package.json` 增加 `engines.dsh`（`>=0.2.1-rc.3 <0.3.0-0`）与可选 `peerDependencies`（`@deepseek-ai/dsh-tools` / `@deepseek-ai/dsh-llm`，`peerDependenciesMeta.optional`），`skills` 从 `latest` 固定为 `~1.7.4`，依赖可复现。
+- **命令稳定身份**：注册时传 `definitionId`（`dsh-commands:<name>`），命令身份稳定、可被 adapter 定向覆盖。
+- **消息构造优先官方实现**：注入的 user / notice 消息优先用 `@deepseek-ai/dsh-llm` 的 `createUserMessage`（`apply()` 里可选加载），无该模块（离线 / 旧宿主）时回退本地契约实现；`lib/` 仍无顶层 `@deepseek-ai/*` 静态 import，离线冒烟不受影响。
+- **生态惯例小修**：`cordis.patch.yml` 的 insert 补 `config: {}`；命令注册去掉多余的 `ctx.effect` 包装，直接 `await ctx.commands.register(...)`（`register()` 内部已绑定调用方 fiber，卸载自动注销）。
+- **状态文件路径**：`dsh-commands/state.json` 优先取 `profileContext.home`，缺省回退 `$DSH_HOME`。
+- 新增 / 扩展离线冒烟：console v1/v3/v4 state 归一化与 `off/hidden/manual/unknown` 均 `writes:false`；技能目录命中 / 缺失 / 回退与 `modelInvocable:false`；官方消息工厂优先；`pnpm view` 命中与回退。
+
 ## [v0.3.4] - 2026-10-29
 
 ### 变更

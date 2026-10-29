@@ -66,8 +66,8 @@ try {
 		for (const name of canonical) await writeSkill(name, { refs: name === "git-kit" });
 		for (const name of links) await symlink(canonicalDir(name), linkPath(name), "dir");
 	};
-	const writeState = async (installs) => {
-		await writeFile(statePath, `${JSON.stringify({ version: 3, installs }, null, 2)}\n`);
+	const writeState = async (installs, version = 3) => {
+		await writeFile(statePath, `${JSON.stringify({ version, installs }, null, 2)}\n`);
 	};
 	const observe = async (env = process.env, options = {}) => {
 		const snapshot = await observeSkills(env, COMMANDS, options);
@@ -217,7 +217,7 @@ try {
 	// ---- 9) console present + off ------------------------------------------
 	await reset({ canonical: names, links: names });
 	{
-		await writeState([{ name: "handoff", mode: "off" }]);
+		await writeState([{ name: "handoff", enabled: false }], 3);
 		const { snapshot, plan } = await observe(process.env, { console: { present: true, state: await readConsoleState() } });
 		const init = plan("init");
 		check(
@@ -330,6 +330,98 @@ try {
 		);
 	}
 
+	// ---- 16) console v4 归一化（enabled 唯一启停 + mode auto/manual/hidden）----
+	await reset({ canonical: names, links: names });
+	{
+		await writeState(
+			[
+				{ name: "git-kit", enabled: true, mode: "auto" },
+				{ name: "handoff", enabled: true, mode: "manual" },
+				{ name: "disk-cleanup", enabled: false, mode: "hidden" }
+			],
+			4
+		);
+		const state = await readConsoleState();
+		const modes = Object.fromEntries((state?.installs ?? []).map((entry) => [entry.name, entry.mode]));
+		check(state?.version === 4, "16. v4：state.version=4", String(state?.version));
+		check(modes["git-kit"] === "on", "16. v4 auto → on", JSON.stringify(modes));
+		check(modes["handoff"] === "manual", "16. v4 manual → manual", JSON.stringify(modes));
+		check(modes["disk-cleanup"] === "off", "16. v4 enabled:false → off", JSON.stringify(modes));
+	}
+
+	// ---- 17) v4 hidden（enabled:true + mode:hidden）→ hidden，只读不写 ----
+	await reset({ canonical: names, links: names });
+	{
+		await writeState([{ name: "git-kit", enabled: true, mode: "hidden" }], 4);
+		const state = await readConsoleState();
+		check(state?.installs?.find((entry) => entry.name === "git-kit")?.mode === "hidden", "17. v4 mode:hidden → hidden", JSON.stringify(state?.installs));
+		const { plan } = await observe(process.env, { console: { present: true, state } });
+		const action = plan("init").actions.find((entry) => entry.name === "git-kit");
+		check(
+			action?.type === "delegate" && action?.writes === false && action?.reason === "console-hidden",
+			"17. v4 hidden：delegate/writes:false",
+			JSON.stringify(action)
+		);
+	}
+
+	// ---- 18) v1 / v3 归一化 ----------------------------------------------
+	await reset();
+	{
+		await writeState([{ name: "git-kit", mode: "off" }, { name: "handoff", mode: "on" }], 1);
+		const v1 = await readConsoleState();
+		check(
+			v1?.installs?.find((entry) => entry.name === "git-kit")?.mode === "off" &&
+				v1?.installs?.find((entry) => entry.name === "handoff")?.mode === "on",
+			"18. v1 mode off/on 归一化",
+			JSON.stringify(v1?.installs)
+		);
+		await writeState([{ name: "git-kit", enabled: false }, { name: "handoff", enabled: true }], 3);
+		const v3 = await readConsoleState();
+		check(
+			v3?.installs?.find((entry) => entry.name === "git-kit")?.mode === "off" &&
+				v3?.installs?.find((entry) => entry.name === "handoff")?.mode === "on",
+			"18. v3 enabled 归一化",
+			JSON.stringify(v3?.installs)
+		);
+	}
+
+	// ---- 19) 未来版本（>4）→ unknown（只读不写）--------------------------
+	await reset({ canonical: names, links: names });
+	{
+		await writeState([{ name: "git-kit", enabled: true, mode: "auto" }], 5);
+		const state = await readConsoleState();
+		check(state?.installs?.[0]?.mode === "unknown", "19. v5 → unknown", JSON.stringify(state?.installs));
+		const { plan } = await observe(process.env, { console: { present: true, state } });
+		const action = plan("init").actions.find((entry) => entry.name === "git-kit");
+		check(
+			action?.type === "delegate" && action?.writes === false && action?.reason === "console-unknown",
+			"19. v5 unknown：delegate/writes:false",
+			JSON.stringify(action)
+		);
+	}
+
+	// ---- 20) off/hidden/manual/unknown 全部 writes:false -----------------
+	await reset({ canonical: names, links: names });
+	{
+		const cases = [
+			["off", 4, { enabled: false, mode: "auto" }],
+			["hidden", 4, { enabled: true, mode: "hidden" }],
+			["manual", 4, { enabled: true, mode: "manual" }],
+			["unknown", 5, { enabled: true, mode: "auto" }]
+		];
+		for (const [mode, version, entry] of cases) {
+			await writeState([{ name: "git-kit", ...entry }], version);
+			const state = await readConsoleState();
+			const { plan } = await observe(process.env, { console: { present: true, state } });
+			const action = plan("init").actions.find((item) => item.name === "git-kit");
+			check(
+				action?.type === "delegate" && action?.writes === false && action?.reason === `console-${mode}`,
+				`20. console ${mode}：delegate/writes:false`,
+				JSON.stringify(action)
+			);
+		}
+	}
+
 	// ---- 附加：模块级只读探测 ----------------------------------------------
 	{
 		check(backendOf({}) === "auto", "附加：backend 默认 auto");
@@ -356,4 +448,4 @@ if (failures > 0) {
 	console.error(`plan 冒烟失败：${failures} 项`);
 	process.exit(1);
 }
-console.log("plan 冒烟通过：observe/plan 15 例 + 附加探测符合预期");
+console.log("plan 冒烟通过：observe/plan 20 例 + 附加探测符合预期");
