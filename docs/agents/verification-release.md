@@ -7,7 +7,7 @@
 
 | 改动 | 必跑 | 说明 |
 |---|---|---|
-| `lib/*.js` | `npm run check` | `check` = `check:syntax`（扫 `lib/`、`scripts/` 与 locale JSON）+ 命名 + 打包 + Release 投影 + `npm test`（五个冒烟）；CI 跑的就是同一串 npm script |
+| `lib/**/*.ts` | `npm run check` | `check` = `check:syntax`（扫 `scripts/` 与 locale JSON）+ `npm run build`（tsc）+ 产物自检 + 命名 + 打包 + Release 投影 + `npm test`；CI 跑的就是同一串 npm script |
 | `COMMANDS` / `branch` | 上面 + `npm run check:contract` | 契约校验依赖技能已安装，不在 CI |
 | `package.json` / `exports` / `files` / 命名 | `npm run check:naming` + `npm run check:pack` | CI 也跑；工具/命令源码必须全部入包；已不再有 `dsh.client` / `./client` |
 | `scripts/*.mjs` | `npm run check:syntax` + 对应冒烟 | 语法已由目录扫描覆盖，不用逐个 `node --check`；`release-notes` 有自己的冒烟 |
@@ -21,7 +21,8 @@
 PR 与 push `main` 触发，机械校验：
 
 1. `bash -n scripts/ci-publish.sh`
-2. `npm run check:syntax`（`scripts/check-syntax.mjs`：扫 `lib/`、`scripts/` 全量与 `locale/*.json`，新增文件自动纳入）
+2. `npm ci` + `npm run build`（`tsc` 把 `lib/*.ts` 编译到 `dist/`）
+3. `npm run check:syntax`（`scripts/check-syntax.mjs`：扫 `scripts/` 与 `locale/*.json`；TS 类型/语法由 tsc 负责）
 3. `npm run check:release-notes`（注记 tag → Release body 投影）
 4. `npm run check:naming`
 5. `npm run check:pack`
@@ -33,7 +34,7 @@ CI 的每一步都调 `package.json` 里的 npm script，不在 YAML 里另列�
 
 - **跨仓契约校验不在 CI**（依赖 agent-skills 技能目录），需要本地跑。
 - `npm run check` 与 CI 覆盖同一组检查，只差 `bash -n`（shell 语法）与契约校验；新增 `lib/*.js` / `scripts/*.mjs` 不需要改 workflow。
-- CI 不装依赖、不联网；冒烟用 stub / 本地 git。
+- CI 装 devDependencies（`typescript` / `@types/node`）并先构建；冒烟本身离线，用 stub / 本地 git。
 - **两个 workflow 的镜像与 action 版本是显式钉住的**，别顺手改回浮动值：
   - `runs-on: ubuntu-24.04`（不是 `ubuntu-latest`）：`ubuntu-latest` 自 2026-10-19 起分批迁到 26.04（11-19 完成），校验/发布结果不该随镜像漂移。要试新镜像就单独改成 `ubuntu-26.04` 跑一轮再切。
   - `actions/checkout@v7` / `actions/setup-node@v7`：v4 跑在 node20 上，GitHub 已提示弃用并强制在 node24 上运行；v5 起改用 node24，v7 是当前主版本。
@@ -43,11 +44,11 @@ CI 的每一步都调 `package.json` 里的 npm script，不在 YAML 里另列�
 ## 3. 打包与命名
 
 - [check-pack.mjs](../../scripts/check-pack.mjs) 调 `npm pack --dry-run --json`，检查白名单与必备文件：
-  - 允许：`package.json`、`README.md`、`LICENSE`、`cordis.patch.yml`、`icon.svg`、`lib/`、`locale/`
+  - 允许：`package.json`、`README.md`、`LICENSE`、`cordis.patch.yml`、`icon.svg`、`dist/`、`locale/`
   - 不允许：`.dsh/`、`docs/`、`scripts/`、`node_modules`、`*.tgz`
 - 三处命名：
   - `package.json.name` == `cordis.patch.yml` 的 `insert[0].name`
-  - `lib/index.js` 的 `export const name` == `cordis.patch.yml` 的 `insert[0].id`
+  - `lib/index.ts` 的 `export const name` == `cordis.patch.yml` 的 `insert[0].id`
   - `publishConfig.access === "public"`
 - 插件页元信息：`locale/{zh,en}.json` 的 `meta.title` / `meta.description`，图标取 `icon` 或 `./icon`；这些资源必须同时出现在 `exports` 与 `files`，且 `package.json` 本身也要导出。
 - `docs/` 不入包；README 里指向 `docs/` 的相对链接在 npm 页面没有对应文件，不要新增依赖这类链接的内容。

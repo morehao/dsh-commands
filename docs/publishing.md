@@ -33,7 +33,7 @@
 
 **本仓库特有的命名约定（改包名时）**
 - [ ] `package.json` 的 `name` == `cordis.patch.yml` 的 `insert[0].name`（模块标识符）。
-- [ ] `lib/index.js` 的 `export const name` == `cordis.patch.yml` 的 `insert[0].id`。
+- [ ] `lib/index.ts` 的 `export const name` == `cordis.patch.yml` 的 `insert[0].id`。
 - [ ] `package.json` 有 `publishConfig.access: public`；`repository.url` 指向本仓（单包仓，无需 `repository.directory`）。
 
 **收尾清理**
@@ -112,12 +112,13 @@ npx --yes setup-npm-trusted-publish @morehao/dsh-commands --registry https://reg
 | `scripts/ci-publish.sh` | 读 `RELEASE_TAG` 版本、校验 package.json、跳过已发布、OIDC 发布 |
 | `package.json`（仓根） | 包名/版本；`publishConfig.access: public`；`dsh.bundle.patch` 指向 `cordis.patch.yml` |
 | `cordis.patch.yml` | 插件注册 patch：`id: dsh-commands`、`name: '@morehao/dsh-commands'` |
-| `lib/index.js` | `export const name = "dsh-commands"`；`export const COMMANDS` 供契约校验 |
+| `lib/index.ts` | `export const name = "dsh-commands"`；`export const COMMANDS` 供契约校验；产物为 `dist/index.js` |
+| `dist/index.js` | `npm run build`（tsc）生成，**不入库**；发布时由 `prepack` 自动构建 |
 
 ## 5. dsh 插件命名约定（改包名/插件名时三处同步核对）
 
 - `package.json` 的 `name`（npm 包名）== `cordis.patch.yml` 的 `insert[0].name`（dsh 启动时 `import()` 的**模块标识符**）。
-- `lib/index.js` 的 `export const name`（cordis 插件名）== `cordis.patch.yml` 的 `insert[0].id`，与模块标识符**解耦**。
+- `lib/index.ts` 的 `export const name`（cordis 插件名）== `cordis.patch.yml` 的 `insert[0].id`，与模块标识符**解耦**。
 - 仓库根目录即包根，无子包目录特例（迁仓前的 `commands-dsh/` 目录名与 npm 包名刻意不同，该特例已消失）。
 - `scripts/check-skill-contract.mjs` 校验「命令 → 技能分支」跨仓契约（技能在 agent-skills，默认读 `$DSH_HOME/skills`）。
 

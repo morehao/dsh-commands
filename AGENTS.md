@@ -4,23 +4,27 @@
 
 ## 1. 项目速览
 
-- 包：`@morehao/dsh-commands`，dsh 原生斜杠命令集合；**仓库根即包根**。host 是纯 ESM、无构建步骤；没有 web client half。
-- 入口：[lib/index.js](lib/index.js) 注册 `COMMANDS`（委托型）与维护型委托 `/skill-init`（经 `skill_init` 工具执行）。
+- 包：`@morehao/dsh-commands`，dsh 原生斜杠命令集合；**仓库根即包根**。host 是 TypeScript 源码（`lib/*.ts`），由 `tsc` 编译到 `dist/`，**构建产物不入库**；没有 web client half。
+- 入口：[lib/index.ts](lib/index.ts) 注册 `COMMANDS`（委托型）与维护型委托 `/skill-init`（经 `skill_init` 工具执行）；运行时入口是产物 `dist/index.js`。
 - 技能逻辑不在本仓：`git-kit` / `handoff` / `disk-cleanup` 由 [`morehao/agent-skills`](https://github.com/morehao/agent-skills) 提供；本仓只做「命令 → skill 分支」的薄映射。
-- 运行时：Node.js ≥ 22.20；唯一 npm 依赖 `skills`（优先直接调用其 CLI，缺失时回退 `npx -y skills`）。
+- 运行时：Node.js ≥ 22.20；运行时依赖 `@morehao/dsh-skills-console`（`>=0.7.1 <0.8.0`）。构建期 devDependencies：`typescript` / `@types/node`。
 - 发布：tag `vX.Y.Z` → GitHub Actions OIDC → npm；发布成功后 CI 用注记 tag 正文创建 GitHub Release。
 
 | 路径 | 作用 |
 |---|---|
-| [lib/index.js](lib/index.js) | 命令表、handler、注入消息、`apply()` |
-| [lib/skill-setup.js](lib/skill-setup.js) | `/skill-init`（含 `--update`）的 plan、安装、软链、校验 |
-| [lib/skill-cache.js](lib/skill-cache.js) | 来源浅克隆缓存、TTL、lock 回写 |
-| [lib/skill-paths.js](lib/skill-paths.js) | `$DSH_HOME` / `$DSH_AGENTS_HOME` / canonical / lock 路径 |
-| [lib/job-progress.js](lib/job-progress.js) | 长任务挂到 `ctx.jobs`、作业行/面板/停止/降级 |
-| [lib/skill-command.js](lib/skill-command.js) | `/skill-init` flags 解析、注入消息、handler、本地回退 |
-| [lib/skill-confirm.js](lib/skill-confirm.js) | `skill_init` 的确认问题/选项与 `confirmSkillPlan()` |
-| [lib/tool-skill-init.js](lib/tool-skill-init.js) | `skill_init` 工具定义、execute 编排、结果 markdown |
-| [lib/proc.js](lib/proc.js) / [lib/text.js](lib/text.js) | 子进程 timeout/abort/输出上限；ANSI/spinner/tail 清洗 |
+| [lib/index.ts](lib/index.ts) | 命令表、handler、注入消息、`apply()`（产物 `dist/index.js`） |
+| [lib/skill-setup.ts](lib/skill-setup.ts) | `/skill-init`（含 `--update`）的 observe / plan / apply / verify |
+| [lib/skill-paths.ts](lib/skill-paths.ts) | `$DSH_HOME` / `$DSH_AGENTS_HOME` / canonical / lock 路径 |
+| [lib/console-api.ts](lib/console-api.ts) | `@morehao/dsh-skills-console/api` 解析与版本守卫 |
+| [lib/job-progress.ts](lib/job-progress.ts) | 长任务挂到 `ctx.jobs`、作业行/面板/停止/降级 |
+| [lib/skill-command.ts](lib/skill-command.ts) | `/skill-init` flags 解析、注入消息、handler、本地回退 |
+| [lib/skill-confirm.ts](lib/skill-confirm.ts) | `skill_init` 的确认问题/选项与 `confirmSkillPlan()` |
+| [lib/tool-skill-init.ts](lib/tool-skill-init.ts) | `skill_init` 工具定义、execute 编排、结果 markdown |
+| [lib/plugin-update.ts](lib/plugin-update.ts) / [lib/plugin-update-command.ts](lib/plugin-update-command.ts) | npm 版本检查、状态文件、`/plugin-update` 命令层 |
+| [lib/plugin-update-service.ts](lib/plugin-update-service.ts) / [lib/tool-plugin-update.ts](lib/tool-plugin-update.ts) | 自更新确认/执行、`plugin_update` 工具 |
+| [lib/proc.ts](lib/proc.ts) / [lib/text.ts](lib/text.ts) | 子进程 timeout/abort/输出上限；ANSI/spinner/tail 清洗 |
+| [tsconfig.host.json](tsconfig.host.json) / [scripts/build-host.mjs](scripts/build-host.mjs) | `tsc` 构建配置与脚本 |
+| `dist/` | `npm run build` 生成，**不入库**；包内实际入口 `dist/index.js` |
 | [scripts/](scripts/) | 契约校验、命名/打包校验、离线冒烟、发布脚本 |
 | [docs/](docs/) | 人类向架构、技能自举、过程可见、开发、发布、历史 |
 | `docs/agents/` | Agent 任务手册；命中任务时按路由阅读 |
@@ -43,8 +47,8 @@
 
 ### 包与发布
 
-- 三处命名必须一致：`package.json.name` = `cordis.patch.yml` 的 `insert[0].name`；`lib/index.js` 的 `export const name` = `insert[0].id`；`publishConfig.access` = `public`。
-- 发包只含白名单：`lib/`、`locale/`、`package.json`、`README.md`、`LICENSE`、`cordis.patch.yml`、`icon.svg`。`.dsh/`、`docs/`、`scripts/`、`node_modules`、`*.tgz` 一律不入包。
+- 三处命名必须一致：`package.json.name` = `cordis.patch.yml` 的 `insert[0].name`；`lib/index.ts` 的 `export const name` = `insert[0].id`；`publishConfig.access` = `public`。
+- 发包只含白名单：`dist/`、`locale/`、`package.json`、`README.md`、`LICENSE`、`cordis.patch.yml`、`icon.svg`。源码 `lib/`、`tsconfig.host.json`、`scripts/`、`.dsh/`、`docs/`、`node_modules`、`*.tgz` 一律不入包（构建产物 `dist/` 除外）。
 - 稳定分支不直推；升版本也走 PR。tag 打在合并后的 `main`，tag 版本必须等于 `package.json.version`。
 - GitHub Release 由 CI 在 npm 发布成功后创建，正文取自注记 tag；`gh release create` 必须留在 [.github/workflows/release.yml](.github/workflows/release.yml)，不要挪进 `scripts/`（git-kit 预检靠它判定后效）。
 
@@ -52,7 +56,7 @@
 
 - 测试必须离线、用临时 HOME；禁止碰真实 `~/.dsh`、`~/.agents` 或真实技能目录。用 `DSH_COMMANDS_SKILL_CLI_OVERRIDE` 注入 stub。
 - 破坏性操作（push、tag、publish、删缓存、改真实 HOME、覆盖/删除软链）先征得用户确认；本仓设计上**不做备份、不删真实目录**。
-- 改 `lib/` 后需重启 dsh web；只有 `link:` 接入时源码即时生效。npm 版是拷贝。
+- 改 `lib/**` 后需 `npm run build`（或挂 `npm run dev`）再重启 dsh web；`link:` 接入也要先 build。npm 版是拷贝。
 - `.dsh/` 是本地过程文档，已 gitignore；不要把其中的草稿当权威，也不要提交。
 
 ## 3. 常用命令
@@ -60,6 +64,7 @@
 | 目的 | 命令 |
 |---|---|
 | 全量本地检查 | `npm run check` |
+| 构建产物 | `npm run build`（`dev` 为 watch，`check:build` 比对 dist 是否落后） |
 | 全部离线冒烟 | `npm test` |
 | 跨仓契约（需技能已安装） | `node scripts/check-skill-contract.mjs` |
 | 三处命名 | `node scripts/check-naming.mjs` |
@@ -72,13 +77,14 @@
 | 你要改 | 先读 | 必跑 |
 |---|---|---|
 | `COMMANDS` / `branch` / 注入文案 / `recordInput` | [命令契约](docs/agents/command-contract.md) | `npm run check` + 契约校验 |
-| `skill-setup` / `cache` / `paths` / `proc` / `text` / `job-progress` / `skill-confirm` / `tool-skill-init` | [技能运行时](docs/agents/skill-runtime.md) | `npm run check` |
+| `skill-setup` / `console-api` / `paths` / `proc` / `text` / `job-progress` / `skill-confirm` / `tool-skill-init` / `plugin-update*` | [技能运行时](docs/agents/skill-runtime.md) | `npm run check` |
 | `scripts/` / CI / `package.json` / 发布 | [验证与发布](docs/agents/verification-release.md) | `npm run check` + 命名/打包校验 |
 | 纯文档 | 对应人类文档 | 链接与事实核对 |
 
 ## 5. 完成定义
 
 - [ ] `npm run check` 通过；改了 `COMMANDS` 或技能分支时，契约校验通过（技能未安装则说明原因）。
+- [ ] 改了 `lib/**` 时 `npm run build` 通过，且 `git status` 不出现 `dist/`（构建产物不入库）。
 - [ ] 改了 `package.json` / `exports` / `files` / 命名时，`check-naming` 与 `check-pack` 通过。
 - [ ] 行为变更同步 README / `docs/` / `CHANGELOG.md`（按影响面，不机械全改）。
 - [ ] `git diff --stat` 无 `.dsh/`、`node_modules`、`*.tgz` 等意外文件。

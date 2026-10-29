@@ -7,5 +7,9 @@
 # 依赖
 node_modules/
 
+# 构建产物（npm run build 生成，不入库）
+dist/
+*.tsbuildinfo
+
 # npm pack 产物（本地跑 `npm pack` 会生成，别提交）
 *.tgz

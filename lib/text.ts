@@ -11,7 +11,7 @@ const ANSI_OSC = /\u001B\][^\u0007\u001B]*(?:\u0007|\u001B\\)/g;
 const ANSI_CSI = /\u001B\[[0-?]*[ -/]*[@-~]/g;
 const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 
-export function stripAnsi(text) {
+export function stripAnsi(text: string | null | undefined): string {
 	return String(text ?? "")
 		.replace(ANSI_OSC, "")
 		.replace(ANSI_CSI, "")
@@ -30,19 +30,27 @@ const SPINNER_TAIL = /[\s.…·]+$/u;
 /** 进度帧的头部字形：`◒`/`◐`/`◓`/`◑`、braille、`-`/`|`。只在计算 dedupe key 时抹掉。 */
 const SPINNER_LEAD = /^[\s]*(?:[◐◓◑◒◜◝◞◟◴◵◶◷]|[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]|[|/\\-])\s*/u;
 
+export interface TailOptions {
+	/** 最多保留多少行 */
+	lines?: number;
+	/** 单行字符上限；0 = 不限制 */
+	maxLineChars?: number;
+	/** 整段字符上限；0 = 不限制 */
+	maxChars?: number;
+	/** 是否按 spinner 字形/尾缀去重 */
+	foldSpinner?: boolean;
+	/** 是否丢弃纯装饰行 */
+	stripDecorations?: boolean;
+	/** 是否剥掉表格左右边框 */
+	stripBoxEdges?: boolean;
+}
+
 /**
  * 取输出尾部，按需剥 ANSI、折叠 spinner、去装饰线与框线，并施加行/字符上限。
  *
- * @param {string} text 原始输出
- * @param {object} [options]
- * @param {number} [options.lines=15] 最多保留多少行
- * @param {number} [options.maxLineChars=0] 单行字符上限；0 = 不限制
- * @param {number} [options.maxChars=0] 整段字符上限；0 = 不限制
- * @param {boolean} [options.foldSpinner=true] 是否按 spinner 字形/尾缀去重
- * @param {boolean} [options.stripDecorations=true] 是否丢弃纯装饰行
- * @param {boolean} [options.stripBoxEdges=true] 是否剥掉表格左右边框
+ * @param text 原始输出
  */
-export function tail(text, options = {}) {
+export function tail(text: string, options: TailOptions = {}): string {
 	const {
 		lines = 15,
 		maxLineChars = 0,
@@ -52,8 +60,8 @@ export function tail(text, options = {}) {
 		stripBoxEdges = true,
 	} = options;
 
-	const kept = [];
-	let previousKey;
+	const kept: string[] = [];
+	let previousKey: string | undefined;
 	for (const raw of stripAnsi(text).split(/\r\n|\r|\n/)) {
 		const line = (stripBoxEdges ? raw.replace(BOX_EDGE, "") : raw).trimEnd();
 		if (line.length === 0 || (stripDecorations && DECORATION_ONLY.test(line))) continue;
@@ -69,7 +77,7 @@ export function tail(text, options = {}) {
 	if (maxChars <= 0) return selected.join("\n");
 
 	// 字符预算从尾部往前算：宁可少几行，也不能让命令卡片被几百 KB 的进度帧撑爆。
-	const out = [];
+	const out: string[] = [];
 	let budget = maxChars;
 	for (let i = selected.length - 1; i >= 0; i -= 1) {
 		const line = selected[i];

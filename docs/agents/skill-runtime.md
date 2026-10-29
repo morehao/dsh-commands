@@ -1,24 +1,23 @@
 # 技能运行时（Agent）
 
-> 读这篇的时机：改 `lib/skill-setup.js`、`lib/skill-cache.js`、`lib/skill-paths.js`、`lib/proc.js`、`lib/text.js`、`lib/job-progress.js`，或排查 `/skill-init`（含 `--update`）。
+> 读这篇的时机：改 `lib/skill-setup.ts`、`lib/skill-paths.ts`、`lib/proc.ts`、`lib/text.ts`、`lib/job-progress.ts`，或排查 `/skill-init`（含 `--update`）。
 > 完整背景见 [技能自举](../skill-setup.md) 与 [过程可见](../job-progress.md)。
 
 ## 1. 模块边界
 
 | 模块 | 职责 | 不要做 |
 |---|---|---|
-| `lib/skill-setup.js` | plan、安装、软链、契约校验、回执 | 不直接碰 `ctx.jobs`；不复制缓存/路径逻辑 |
-| `lib/skill-cache.js` | 来源浅克隆、TTL、lock 回写 | 不决定「要不要建作业」 |
-| `lib/skill-paths.js` | `DSH_HOME` / agents home / 本源 / lock 路径；`skillRoots()` 是技能根顺序的唯一真源 | 不让调用方各自拼路径 |
-| `lib/proc.js` | 子进程 timeout / abort / 输出上限 | 不经 shell 拼命令 |
-| `lib/text.js` | ANSI / 框线 / spinner 清洗、tail 截断 | 不加业务语义 |
-| `lib/job-progress.js` | 把 work 挂到 `ctx.jobs`、`wait` 收尾、降级 | 不含技能逻辑 |
-| `lib/skill-command.js` | `/skill-init` 的 flags 解析、注入消息、handler 与本地回退 | 不执行安装、不碰 `ctx.jobs` |
-| `lib/tool-skill-init.js` | `skill_init` 工具定义（参数/结果 schema/markdown）与 execute 编排；纯定义，不 import `@deepseek-ai/*` | 不复制 observe/plan/apply；不在 `execute` 外解析服务 |
+| `lib/skill-setup.ts` | plan、安装、软链、契约校验、回执 | 不直接碰 `ctx.jobs`；不复制缓存/路径逻辑 |
+| `lib/skill-paths.ts` | `DSH_HOME` / agents home / 本源 / lock 路径；`skillRoots()` 是技能根顺序的唯一真源 | 不让调用方各自拼路径 |
+| `lib/proc.ts` | 子进程 timeout / abort / 输出上限 | 不经 shell 拼命令 |
+| `lib/text.ts` | ANSI / 框线 / spinner 清洗、tail 截断 | 不加业务语义 |
+| `lib/job-progress.ts` | 把 work 挂到 `ctx.jobs`、`wait` 收尾、降级 | 不含技能逻辑 |
+| `lib/skill-command.ts` | `/skill-init` 的 flags 解析、注入消息、handler 与本地回退 | 不执行安装、不碰 `ctx.jobs` |
+| `lib/tool-skill-init.ts` | `skill_init` 工具定义（参数/结果 schema/markdown）与 execute 编排；纯定义，不 import `@deepseek-ai/*` | 不复制 observe/plan/apply；不在 `execute` 外解析服务 |
 
 ## 2. 调用链
 
-命令层（`lib/skill-command.js`）：
+命令层（`lib/skill-command.ts`）：
 
 1. `parseSkillInitInput(rawInput)`：`--update` / `--yes` / 技能名；init 带技能名、未知 flag → 用法错误，不注入。
 2. 无 `tools`、无 `agent.followup` → `fallback(parsed, invocation)` 直接跑 `runSkillInit` / `runSkillUpdate`，返回文本。
@@ -29,7 +28,7 @@
 
 ### 2.1 工具链路
 
-`skill_init`（`lib/tool-skill-init.js`）复用同一核心，`execute` 顺序固定：
+`skill_init`（`lib/tool-skill-init.ts`）复用同一核心，`execute` 顺序固定：
 
 1. `referencedSkills(commands)` 校验 `names`：未知技能直接 `attention`，零写。
 2. `observeSkills()` → `planOperation()`；无写盘且无需只读探针（`check` / 已就绪 / 纯 blocked / 纯 warn）直接出结论。
@@ -96,7 +95,7 @@
 
 - 所有测试必须：临时 HOME、临时缓存、`DSH_COMMANDS_SKILL_CLI_OVERRIDE` 指 stub、不联网、不碰真实 `~/.dsh` / `~/.agents`。
 - 不要用真实 `skills add` 跑冒烟；需要真实 git 时用临时仓库 / `file://`。
-- 改 `lib/job-progress.js` 前先读 [smoke-skill-setup.mjs](../../scripts/smoke-skill-setup.mjs) 顶部注释（记录了 `wait` 的必要性与 dsh 侧行号证据）。
+- 改 `lib/job-progress.ts` 前先读 [smoke-skill-setup.mjs](../../scripts/smoke-skill-setup.mjs) 顶部注释（记录了 `wait` 的必要性与 dsh 侧行号证据）。
 - 新增路径/清洗/超时逻辑时，优先扩展现有模块与冒烟，不新开一套。
 
 ## 9. 修改检查清单

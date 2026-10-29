@@ -6,7 +6,7 @@
 
 - **技能安装 / 更新改为消费 `@morehao/dsh-skills-console` 包 API**：删除 `skills` CLI 依赖、`lib/skill-cache.js`（git 缓存 / TTL）、`lib/skills-console.js`（只读 state.json）、`ensureLinks` / `linkSkill` 与 `~/.dsh/skills` 可见性建链、`DSH_COMMANDS_SKILL_BACKEND`（auto/console/cli）与整套 CLI 参数 / 网络预检。`/skill-init`（含 `--update`）现在通过 `import('@morehao/dsh-skills-console/api')` → `createSkillsConsole()` 调用 `list` / `adopt` / `install` / `update`。
 - **不再往 `~/.dsh/skills` 建链**：canonical `~/.agents/skills` 就是 DSH 的扫描根，装好即可见；两份真相（建链）会让摘链不等于不可见。已手工放好的技能按「已安装」识别，控制台账本没有时先 `adopt` 只补记账。
-- **`skills` 依赖换成 `@morehao/dsh-skills-console: >=0.7.0 <0.8.0`**（dependency，自动带上）。**不要求启用技能控制台插件**：插件启用时包内部 runtime registry 让 `createSkillsConsole()` 复用插件实例、共享同一个 StateStore（单写者）；未启用时创建 headless 实例单写。
+- **`skills` 依赖换成 `@morehao/dsh-skills-console: >=0.7.1 <0.8.0`**（dependency，自动带上）。**不要求启用技能控制台插件**：插件启用时包内部 runtime registry 让 `createSkillsConsole()` 复用插件实例、共享同一个 StateStore（单写者）；未启用时创建 headless 实例单写。
 - **旧 console 守卫**：profile 顶层启用的是 <0.7.0 的技能控制台时，`/skill-init` 直接 `blocked` 并提示升级，绝不创建 headless 实例导致双写。
 - `DSH_COMMANDS_SKILL_SOURCE` 保留为 `install({ source })` 的来源覆盖，**只支持 GitHub 源**（owner/repo 或 GitHub URL）；本地目录源 v1 不支持。离线安装能力随 git 缓存一并移除（`/skill-init` 需要能访问上游）。
 
@@ -28,6 +28,9 @@
 - **生态惯例小修**：`cordis.patch.yml` 的 insert 补 `config: {}`；命令注册去掉多余的 `ctx.effect` 包装，直接 `await ctx.commands.register(...)`（`register()` 内部已绑定调用方 fiber，卸载自动注销）。
 - **状态文件路径**：`dsh-commands/state.json` 优先取 `profileContext.home`，缺省回退 `$DSH_HOME`。
 - 新增 / 扩展离线冒烟：console v1/v3/v4 state 归一化与 `off/hidden/manual/unknown` 均 `writes:false`；技能目录命中 / 缺失 / 回退与 `modelInvocable:false`；官方消息工厂优先；`pnpm view` 命中与回退。
+
+- **改用 TypeScript**：`lib/*.js` → `lib/*.ts`，由 `tsc`（`tsconfig.host.json`）编译到 `dist/`（构建产物**不入库**）；新增 `scripts/build-host.mjs`、`scripts/check-artifact.mjs`、`lib/types.d.ts`、`lib/optional-peers.d.ts`；`npm run build` / `prepare` / `prepack` / `pretest` 负责构建，`check`/CI 增加 `npm ci` + build。命令表、注入文案与运行行为不变。
+- **依赖下限提升到 `@morehao/dsh-skills-console >=0.7.1`**：其宿主 peer（`@deepseek-ai/dsh-skill` 等）已改为 optional，安装不再需要 `legacy-peer-deps`（本仓临时 `.npmrc` 已删除）。
 
 ## [v0.3.4] - 2026-10-29
 

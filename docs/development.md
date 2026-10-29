@@ -1,21 +1,24 @@
 # 开发与测试
 
-host 没有构建步骤，源码即产物（纯 ESM）；唯一运行时依赖是 `skills` CLI。没有 web client half。
+host 源码是 `lib/*.ts`，由 `tsc` 编译到 `dist/`（构建产物，**不入库**）；`npm run build` 生成，`npm run dev` 持续构建。运行时依赖 `@morehao/dsh-skills-console`。没有 web client half。
 
 ## 目录
 
 | 路径 | 作用 |
 |---|---|
-| `lib/index.js` | 意图表 `COMMANDS`、`/skill-init` 元数据、`apply()` 注册命令与工具 |
-| `lib/skill-setup.js` | `/skill-init`（含 `--update`）的 plan、安装、软链、校验 |
-| `lib/skill-paths.js` | `$DSH_HOME` / `$DSH_AGENTS_HOME` / 本源 / lock 路径解析，以及统一的技能根顺序 `skillRoots()` |
-| `lib/skill-cache.js` | 来源浅克隆缓存、TTL、lock 回写 |
-| `lib/text.js` | ANSI 清洗、spinner 折叠、尾部截断 |
-| `lib/proc.js` | 子进程 timeout / abort / 输出上限 |
-| `lib/job-progress.js` | 把长任务挂到 `ctx.jobs`，作业行/面板/停止/回执 |
-| `lib/skill-command.js` | `/skill-init` flags 解析、注入消息、handler、本地回退 |
-| `lib/skill-confirm.js` | `skill_init` 的确认问题/选项与 `confirmSkillPlan()` |
-| `lib/tool-skill-init.js` | `skill_init` 工具定义、execute 编排、结果 markdown |
+| `lib/index.ts` | 意图表 `COMMANDS`、`/skill-init` 元数据、`apply()` 注册命令与工具 |
+| `lib/skill-setup.ts` | `/skill-init`（含 `--update`）的 plan、安装、软链、校验 |
+| `lib/skill-paths.ts` | `$DSH_HOME` / `$DSH_AGENTS_HOME` / 本源 / lock 路径解析，以及统一的技能根顺序 `skillRoots()` |
+| `lib/text.ts` | ANSI 清洗、spinner 折叠、尾部截断 |
+| `lib/proc.ts` | 子进程 timeout / abort / 输出上限 |
+| `lib/job-progress.ts` | 把长任务挂到 `ctx.jobs`，作业行/面板/停止/回执 |
+| `lib/skill-command.ts` | `/skill-init` flags 解析、注入消息、handler、本地回退 |
+| `lib/skill-confirm.ts` | `skill_init` 的确认问题/选项与 `confirmSkillPlan()` |
+| `lib/tool-skill-init.ts` | `skill_init` 工具定义、execute 编排、结果 markdown |
+| `lib/console-api.ts` | `@morehao/dsh-skills-console/api` 解析与旧 console / API 版本守卫 |
+| `lib/plugin-update*.ts` / `lib/tool-plugin-update.ts` | 自更新版本检查、确认、执行与 `plugin_update` 工具 |
+| `dist/`（构建产物） | `npm run build`（tsc）生成，**不入库**；包内实际入口 `dist/index.js` |
+| `tsconfig.host.json` / `scripts/build-host.mjs` | tsc 构建配置与构建脚本 |
 | `locale/{zh,en}.json` | 插件页标题与描述 |
 | `cordis.patch.yml` | dsh profile bundle patch（注册插件） |
 | `scripts/` | 契约校验、冒烟、命名/打包校验、发布脚本 |
@@ -24,7 +27,7 @@ host 没有构建步骤，源码即产物（纯 ESM）；唯一运行时依赖�
 
 ## 增删命令
 
-改 `lib/index.js` 的 `COMMANDS` 表即可，每条一行声明：
+改 `lib/index.ts` 的 `COMMANDS` 表即可，每条一行声明：
 
 - `branch` 值必须与对应 `SKILL.md` 决策树的分支 key 一致（即 `references/<branch>.md`）；`skill` 省略时默认 `git-kit`。
 - `hint` / `required` 决定输入提示与校验；`description` 原样出现在斜杠菜单，不做 i18n（原因见 [架构与原理](./architecture.md#描述文本不做-i18n有意为之)）。
@@ -55,7 +58,7 @@ node scripts/smoke-skill-setup.mjs   # stub CLI：安装/软链/并发/超时/�
 node scripts/smoke-skill-plan.mjs    # observe/plan：所有权、缺失、真实目录、控制台记录
 node scripts/smoke-skill-tool.mjs    # skill_init：确认/写盘/停止/指纹/结果矩阵
 node scripts/smoke-skill-command.mjs # /skill-init：flags、注入消息、source.kind、回退
-node scripts/smoke-skill-cache.mjs   # 本地 git 源：cache/TTL/refresh/离线/lock 回写
+node scripts/smoke-plugin-update.mjs # /plugin-update：解析、注入、版本检查、确认、更新
 node scripts/smoke-skill-contract.mjs # 契约校验：技能根顺序 / 缺分支 / 缺技能去重（临时 HOME）
 ```
 
@@ -70,18 +73,16 @@ node scripts/smoke-skill-contract.mjs # 契约校验：技能根顺序 / 缺分�
 - `needsConfirmation()` 与 `installTargets()` 单独断言：写盘只由缺失/待修复驱动，上游更新只报告；确认逻辑本身由 `smoke-skill-tool` 覆盖。
 - `/skill-init` 命令层在无 tools 时走本地回退（`--update` 仍强制更新，非法位置参数报用法）；有 tools 时的注入行为由 `smoke-skill-command` 覆盖。
 
-`smoke-skill-cache` 用临时 git 源验证首次 clone、TTL 命中、refresh 更新、`ttl<0` 离线、fetch 失败回退、`--json` 解析与 lock 来源/40 位 git tree hash 回写（24 项，不联网）。
-
 `smoke-skill-contract` 在临时 HOME 里铺技能目录，覆盖契约校验的两类行为：技能根顺序（只有本源 / 只有 `$DSH_HOME/skills` / 只有 `$DSH_AGENTS_HOME/skills` / 软链层指向本源都算已安装）与失败输出（缺 `references/<branch>.md`、缺技能按技能去重并列出查过的路径）。它 spawn 真实脚本，不联网。
 
-改动 `lib/job-progress.js` 前先读 `scripts/smoke-skill-setup.mjs` 顶部注释：它记录了「为什么只能用 `wait` 收尾」以及 dsh 侧的行号证据。
+改动 `lib/job-progress.ts` 前先读 `scripts/smoke-skill-setup.mjs` 顶部注释：它记录了「为什么只能用 `wait` 收尾」以及 dsh 侧的行号证据。
 
 ## CI
 
 `.github/workflows/check.yml` 在 PR 上机械校验，每一步都调同一个 npm script（CI 不另列文件清单）：
 
 - 发布脚本语法：`bash -n scripts/ci-publish.sh`；
-- 插件语法：`npm run check:syntax`（扫 `lib/`、`scripts/` 全量 + `locale/*.json`；新增文件自动纳入）；
+- 插件语法：`npm run check:syntax`（扫 `scripts/` + `locale/*.json`；TS 类型/语法由 `npm run build` 的 tsc 负责）；
 - Release 正文投影：`npm run check:release-notes`（注记 tag → Release body）；
 - 包名 / 模块标识符 / 插件名三处一致：`npm run check:naming`；
 - 打包内容白名单：`npm run check:pack`（防止 `.dsh/` 草稿、`node_modules`、`*.tgz` 混进 npm tarball）；
@@ -92,7 +93,7 @@ node scripts/smoke-skill-contract.mjs # 契约校验：技能根顺序 / 缺分�
 ## 命名约定
 
 - `package.json` 的 `name`（npm 包名）== `cordis.patch.yml` 的 `insert[0].name`（dsh 启动时 `import()` 的**模块标识符**）。
-- `lib/index.js` 的 `export const name`（cordis 插件名）== `cordis.patch.yml` 的 `insert[0].id`，与模块标识符**解耦**。
+- `lib/index.ts` 的 `export const name`（cordis 插件名）== `cordis.patch.yml` 的 `insert[0].id`，与模块标识符**解耦**。
 - `publishConfig.access` 必须是 `public`。
 
 改包名时三处同步核对（CI 有机械校验）；完整发布约定见 [发布说明](./publishing.md#5-dsh-插件命名约定改包名插件名时三处同步核对)。
@@ -102,7 +103,8 @@ node scripts/smoke-skill-contract.mjs # 契约校验：技能根顺序 / 缺分�
 用 `link:` 方式接入，源码即时生效，不依赖 npm 版本：
 
 ```bash
-npm install        # link 不会代装 dependencies；装 skills 依赖后才会走「直接调用 CLI」
+npm install        # 安装 devDependencies（typescript/@types/node）并触发一次 prepare 构建
+npm run build      # 改源码后重建 dist/（或 npm run dev 持续构建）
 dsh plugin --profile <profile> add link:/绝对路径/dsh-commands
 # 重启 dsh web
 ```

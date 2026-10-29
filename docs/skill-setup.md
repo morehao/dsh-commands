@@ -14,7 +14,7 @@
 
 **任意来源的技能安装不在命令面**：dsh 会扫描 canonical `~/.agents/skills`，所以 `npx -y skills add <来源> --skill <名称> -g -a universal -y` 就够了，交给用户或 agent 直接执行（见 [额外技能](#额外技能不再由插件安装)）。插件只负责自己依赖的 `git-kit`、`handoff`、`disk-cleanup`。
 
-- 实现：`lib/skill-command.js`（命令 flags / 注入 / 回退）、`lib/tool-skill-init.js`（工具 execute / 结果）、`lib/skill-confirm.js`（确认）、`lib/console-api.js`（解析并校验 `@morehao/dsh-skills-console/api` + 旧 console 版本守卫）、`lib/skill-setup.js`（observe / plan / apply / verify，经包 API 安装/更新）、`lib/skill-paths.js`（路径与技能根顺序）；长任务包装在 `lib/job-progress.js`，进度/停止由 dsh 原生作业 UI 提供（见 [过程可见](./job-progress.md)）。
+- 实现：`lib/skill-command.ts`（命令 flags / 注入 / 回退）、`lib/tool-skill-init.ts`（工具 execute / 结果）、`lib/skill-confirm.ts`（确认）、`lib/console-api.ts`（解析并校验 `@morehao/dsh-skills-console/api` + 旧 console 版本守卫）、`lib/skill-setup.ts`（observe / plan / apply / verify，经包 API 安装/更新）、`lib/skill-paths.ts`（路径与技能根顺序）；长任务包装在 `lib/job-progress.ts`，进度/停止由 dsh 原生作业 UI 提供（见 [过程可见](./job-progress.md)）。
 - 工具与回退共用一次 `planOperation()`：本地判定「要不要建作业 / 处理哪些技能 / 是否已最新」，`applyPlan` 只负责执行。同一条规则只有一处实现。
 - 无 `tools`、无 `agent.followup` 或注入失败时，命令回退到 `runSkillInit` / `runSkillUpdate`（本地执行，语义相同，但没有确认卡与工具结果）。
 - 依赖集合仍从 `COMMANDS` 推导（`skill ?? "git-kit"` 去重，导出为 `REQUIRED_SKILLS`），新增委托型命令后自动跟进。

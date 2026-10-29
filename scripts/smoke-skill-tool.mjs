@@ -33,9 +33,9 @@ try {
 	await mkdir(join(home, ".agents", "skills"), { recursive: true });
 	await mkdir(join(dshHome, "skills"), { recursive: true });
 
-	const { createSkillInitTool, narrowToMissing, planHasWrites, renderPlanDetail } = await import("../lib/tool-skill-init.js");
-	const { observeSkills, planOperation } = await import("../lib/skill-setup.js");
-	const { COMMANDS } = await import("../lib/index.js");
+	const { createSkillInitTool, narrowToMissing, planHasWrites, renderPlanDetail } = await import("../dist/tool-skill-init.js");
+	const { observeSkills, planOperation } = await import("../dist/skill-setup.js");
+	const { COMMANDS } = await import("../dist/index.js");
 	const names = ["git-kit", "handoff", "disk-cleanup"];
 
 	const writeSkill = async (name) => {

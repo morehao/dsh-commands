@@ -16,8 +16,8 @@
 import { access, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-import { COMMANDS } from "../lib/index.js";
-import { skillRoots } from "../lib/skill-paths.js";
+import { COMMANDS } from "../dist/index.js";
+import { skillRoots } from "../dist/skill-paths.js";
 
 const roots = skillRoots(process.env);
 

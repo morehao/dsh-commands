@@ -17,11 +17,11 @@ import {
 } from "./plugin-update.js";
 import { applyPluginUpdate, confirmPluginUpdate, renderPlanDetail, verifyPluginUpdate } from "./plugin-update-service.js";
 
-const messageOf = (error) => (error instanceof Error ? error.message : String(error));
-const firstLine = (error) => messageOf(error).split("\n")[0]?.trim() ?? "";
-const dedupe = (items) => [...new Set(items.filter((item) => typeof item === "string" && item.length > 0))];
+const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+const firstLine = (error: unknown): string => messageOf(error).split("\n")[0]?.trim() ?? "";
+const dedupe = (items: any[]): string[] => [...new Set(items.filter((item) => typeof item === "string" && item.length > 0))];
 
-function makeResult({ mode, status, summary, currentVersion, latestVersion, updatedVersion, restartRequired, warnings, next, markdown }) {
+function makeResult({ mode, status, summary, currentVersion, latestVersion, updatedVersion, restartRequired, warnings, next, markdown }: any): any {
 	return {
 		mode,
 		status,
@@ -50,8 +50,8 @@ export function createPluginUpdateTool({
 	createUpdater = createPluginUpdater,
 	readVersion = readInstalledVersion,
 	env = process.env
-} = {}) {
-	const serviceOf = (name) => {
+}: any = {}) {
+	const serviceOf = (name: string) => {
 		const value = services?.[name];
 		return typeof value === "function" ? value() : value;
 	};
@@ -94,7 +94,7 @@ export function createPluginUpdateTool({
 			},
 			render: (_args, value) => [{ type: "text", text: typeof value?.markdown === "string" ? value.markdown : "" }]
 		},
-		async execute(args = {}, exec = {}) {
+		async execute(args: any = {}, exec: any = {}) {
 			const mode = args?.mode === "apply" ? "apply" : "check";
 			const yes = args?.yes === true;
 			try {
@@ -246,7 +246,7 @@ export function createPluginUpdateTool({
 					pendingVersion: observed.latestVersion
 				});
 
-				const warnings = [];
+				const warnings: string[] = [];
 				if (outcome.fallbackReason !== undefined) warnings.push(`未启用后台作业：${outcome.fallbackReason}`);
 				if (value.ok !== true) warnings.push(`校验：安装副本版本为 v${value.installedVersion || "未知"}，未到 v${observed.latestVersion}`);
 				const appliedOk = value.ok === true;

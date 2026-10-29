@@ -35,9 +35,9 @@ try {
 	await mkdir(join(home, ".agents", "skills"), { recursive: true });
 	await mkdir(join(dshHome, "skills"), { recursive: true });
 
-	const { resolveConsoleApi } = await import("../lib/console-api.js");
-	const { runSkillInit, runSkillUpdate } = await import("../lib/skill-setup.js");
-	const { COMMANDS } = await import("../lib/index.js");
+	const { resolveConsoleApi } = await import("../dist/console-api.js");
+	const { runSkillInit, runSkillUpdate } = await import("../dist/skill-setup.js");
+	const { COMMANDS } = await import("../dist/index.js");
 	const names = ["git-kit", "handoff", "disk-cleanup"];
 
 	const writeSkill = async (name) => {

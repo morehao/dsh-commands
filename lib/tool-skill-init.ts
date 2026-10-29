@@ -43,23 +43,23 @@ const ACTION_LABEL = Object.freeze({
   warn: "提示",
 });
 
-const firstLine = (error) => {
+const firstLine = (error: unknown): string => {
   const message = error instanceof Error ? error.message : String(error);
   return message.split("\n")[0]?.trim() ?? "";
 };
-const dedupe = (items) => [...new Set(items.filter((item) => typeof item === "string" && item.length > 0))];
+const dedupe = (items: any[]): string[] => [...new Set(items.filter((item) => typeof item === "string" && item.length > 0))];
 
 /** 写盘范围只由 action 决定；delegate/blocked/skip/warn 永远零写。 */
-export function planHasWrites(plan) {
+export function planHasWrites(plan: any): boolean {
   return (plan?.actions ?? []).some((action) => action.writes === true);
 }
 
 export { narrowToMissing };
 
 /** action → 结果 status；apply 未跑时标 planned。 */
-function mergeActions(plan, applied) {
-  const installMap = new Map((applied?.installResults ?? []).map((item) => [item.name, item]));
-  const updateMap = new Map((applied?.updateResults ?? []).map((item) => [item.name, item]));
+function mergeActions(plan: any, applied?: any): any[] {
+  const installMap = new Map<string, any>((applied?.installResults ?? []).map((item) => [item.name, item]));
+  const updateMap = new Map<string, any>((applied?.updateResults ?? []).map((item) => [item.name, item]));
   return (plan?.actions ?? []).map((action) => {
     const base = { name: action.name, action: action.type, status: "skipped", detail: action.detail ?? "" };
     if (action.type === "install") {
@@ -95,7 +95,7 @@ function mergeActions(plan, applied) {
   });
 }
 
-function finalStatus({ resultActions, writes }) {
+function finalStatus({ resultActions, writes }: any): string {
   if (resultActions.some((action) => action.status === "failed")) return "attention";
   if (writes) {
     if (resultActions.some((action) => action.status === "warn" || action.status === "delegated")) return "attention";
@@ -106,8 +106,8 @@ function finalStatus({ resultActions, writes }) {
   return "ok";
 }
 
-function buildNext({ resultActions, contract, verification }) {
-  const next = [];
+function buildNext({ resultActions, contract, verification }: any): string[] {
+  const next: string[] = [];
   const delegated = resultActions.filter((action) => action.status === "delegated");
   if (delegated.length > 0) next.push(`${delegated.map((action) => action.name).join("、")} 由技能控制台管理，请在控制台启用/切自动后重试`);
   for (const action of resultActions) {
@@ -119,7 +119,7 @@ function buildNext({ resultActions, contract, verification }) {
   return dedupe(next).slice(0, 6);
 }
 
-function summaryOf(status, { plan, resultActions, applied, next }) {
+function summaryOf(status: string, { plan, resultActions, applied, next }: any): string {
   if (status === "blocked") return "执行被技能控制台阻断，未写盘";
   if (status === "attention") {
     const changed = resultActions.filter((action) => action.status === "changed").length;
@@ -138,8 +138,8 @@ function summaryOf(status, { plan, resultActions, applied, next }) {
   return plan?.skipReason ?? "已就绪，无需变更";
 }
 
-function actionLines(resultActions, plan) {
-  const lines = [];
+function actionLines(resultActions: any[], plan: any): string[] {
+  const lines: string[] = [];
   for (const action of resultActions) {
     if (action.status === "skipped" && action.action === "skip") continue;
     const label = ACTION_LABEL[action.action] ?? action.action;
@@ -150,7 +150,7 @@ function actionLines(resultActions, plan) {
   return lines;
 }
 
-function renderMarkdown(result) {
+function renderMarkdown(result: any): string {
   const lines = [`${STATUS_ICON[result.status] ?? "·"} ${result.summary}`];
   lines.push(...actionLines(result.actions, result.plan));
   if (result.contract.problems.length > 0) {
@@ -169,8 +169,8 @@ function renderMarkdown(result) {
   return lines.join("\n");
 }
 
-function makeResult({ mode, status, plan, actions, contract, verification, warnings, next, commands, summary, requiresConfirmation }) {
-  const result = {
+function makeResult({ mode, status, plan, actions, contract, verification, warnings, next, commands, summary, requiresConfirmation }: any): any {
+  const result: any = {
     mode,
     status,
     summary,
@@ -186,7 +186,7 @@ function makeResult({ mode, status, plan, actions, contract, verification, warni
   return result;
 }
 
-function blockedResolveResult(mode, error, commands) {
+function blockedResolveResult(mode: string, error: any, commands: any[]): any {
   const code = error?.code;
   const summary =
     code === "old-console"
@@ -215,12 +215,12 @@ function blockedResolveResult(mode, error, commands) {
   });
 }
 
-const contractOf = async (plan, commands, check, snapshot) => {
+const contractOf = async (plan: any, commands: any[], check: any, snapshot: any) => {
   const problems = dedupe((await check(plan, commands, snapshot)) ?? []);
   return { ok: problems.length === 0, problems, commands: commands.length };
 };
 
-function cancelledResult(plan, commands, { stopped = false } = {}) {
+function cancelledResult(plan: any, commands: any[], { stopped = false }: { stopped?: boolean } = {}): any {
   return makeResult({
     mode: plan.mode ?? "init",
     status: "cancelled",
@@ -258,12 +258,12 @@ export function createSkillInitTool({
   verify = verifyPlan,
   confirm = confirmSkillPlan,
   check = checkContract,
-} = {}) {
+}: any = {}) {
   if (!Array.isArray(commands) || commands.length === 0) {
     throw new Error("createSkillInitTool() 需要非空的 commands");
   }
-  const allNames = referencedSkills(commands);
-  const serviceOf = (name) => {
+  const allNames: string[] = referencedSkills(commands);
+  const serviceOf = (name: string) => {
     const value = services?.[name];
     return typeof value === "function" ? value() : value;
   };
@@ -336,7 +336,7 @@ export function createSkillInitTool({
       },
       render: (_args, value) => [{ type: "text", text: typeof value?.markdown === "string" ? value.markdown : "" }],
     },
-    async execute(args = {}, exec = {}) {
+    async execute(args: any = {}, exec: any = {}) {
       const mode = args?.mode === "update" ? "update" : args?.mode === "check" ? "check" : "init";
       const names = Array.isArray(args?.names)
         ? args.names.filter((name) => typeof name === "string" && name.trim().length > 0).map((name) => name.trim())
@@ -357,7 +357,7 @@ export function createSkillInitTool({
       }
 
       // 1) 解析 api（只走包）；旧 console / API 缺失 / 版本不兼容 → blocked，零写。
-      let api;
+      let api: any;
       try {
         ({ api } = await resolveApi({ env }));
       } catch (error) {
@@ -365,7 +365,7 @@ export function createSkillInitTool({
       }
 
       try {
-        let snapshot = await observe(env, commands, { api });
+        let snapshot: any = await observe(env, commands, { api });
         // canonical 有、账本没有 → adopt（只补记账），再刷新记录。
         if (mode !== "check" && api && typeof api.adopt === "function" && !snapshot.consoleError) {
           const toAdopt = snapshot.skills.filter((skill) => skill.canonical?.ok && !skill.console?.record).map((skill) => skill.name);
@@ -383,7 +383,7 @@ export function createSkillInitTool({
           }
         }
 
-        let currentPlan = await plan(mode, { names }, snapshot);
+        let currentPlan: any = await plan(mode, { names }, snapshot);
         if (!planHasWrites(currentPlan)) {
           const contract = await contractOf(currentPlan, commands, check, snapshot);
           const resultActions = mergeActions(currentPlan, undefined);
@@ -405,7 +405,7 @@ export function createSkillInitTool({
 
         let missingOnly = false;
         if (currentPlan.confirm?.needs === true && yes !== true) {
-          const answer = await confirm({
+          const answer: any = await confirm({
             userQuestions: serviceOf("userQuestions"),
             agent: exec.agent,
             plan: currentPlan,
@@ -522,7 +522,7 @@ export function createSkillInitTool({
 }
 
 /** 确认卡 detail：逐技能计划；不写“过程去哪看”。 */
-export function renderPlanDetail(plan) {
+export function renderPlanDetail(plan: any): string {
   const actions = plan.actions ?? [];
   const counts = {
     install: actions.filter((action) => action.type === "install").length,
