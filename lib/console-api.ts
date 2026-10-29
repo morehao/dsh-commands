@@ -26,7 +26,10 @@ export const EXPECTED_API_VERSION = 1;
 
 /** 解析失败的结构化错误：调用方据 `code` 给出可执行回执，绝不静默降级到 CLI。 */
 export class ConsoleResolveError extends Error {
-  constructor(code, message, detail) {
+  code: string;
+  detail?: unknown;
+
+  constructor(code: string, message: string, detail?: unknown) {
     super(message);
     this.name = "ConsoleResolveError";
     this.code = code;
@@ -34,8 +37,20 @@ export class ConsoleResolveError extends Error {
   }
 }
 
+export interface ProfileConsole {
+  dir: string;
+  enabled: boolean;
+  version: string | null;
+}
+
+export interface ResolveConsoleApiOptions {
+  env?: NodeJS.ProcessEnv;
+  importer?: (specifier: string) => Promise<any>;
+  createSkillsConsole?: () => any;
+}
+
 /** 解析 `x.y.z`（忽略前缀与预发布标签），失败返回 null。 */
-function parseVersion(value) {
+function parseVersion(value: unknown): number[] | null {
   if (typeof value !== "string") return null;
   const core = value.trim().split(/[-+]/)[0].replace(/^[^0-9]*/, "");
   const parts = core.split(".").map((part) => Number.parseInt(part, 10));
@@ -45,7 +60,7 @@ function parseVersion(value) {
 }
 
 /** a < b → -1，a == b → 0，a > b → 1（无法解析时按相等处理）。 */
-export function compareVersions(a, b) {
+export function compareVersions(a: string | null | undefined, b: string): number {
   const pa = parseVersion(a);
   const pb = parseVersion(b);
   if (pa === null || pb === null) return 0;
@@ -58,13 +73,11 @@ export function compareVersions(a, b) {
 /**
  * 读取 profile 顶层安装的 console 版本与是否启用。
  * 返回 `null` 表示拿不到 profile（非 profile 启动 / 读失败），守卫失效。
- *
- * @returns {Promise<{ dir: string, enabled: boolean, version: string | null } | null>}
  */
-export async function readProfileConsole(env = process.env) {
+export async function readProfileConsole(env: NodeJS.ProcessEnv = process.env): Promise<ProfileConsole | null> {
   const dir = typeof env.DSH_PROFILE_DIR === "string" ? env.DSH_PROFILE_DIR.trim() : "";
   if (!dir) return null;
-  let pkg;
+  let pkg: any;
   try {
     pkg = JSON.parse(await readFile(join(dir, "package.json"), "utf8"));
   } catch {
@@ -72,7 +85,7 @@ export async function readProfileConsole(env = process.env) {
   }
   const bundles = Array.isArray(pkg?.dsh?.profile?.bundles) ? pkg.dsh.profile.bundles : [];
   const enabled = bundles.includes(CONSOLE_PACKAGE_NAME);
-  let version = null;
+  let version: string | null = null;
   try {
     const req = createRequire(join(dir, "package.json"));
     const pkgPath = req.resolve(CONSOLE_PACKAGE_JSON);
@@ -88,13 +101,14 @@ export async function readProfileConsole(env = process.env) {
 /**
  * 解析出可用的 console api。
  *
- * @param {{ env?: Record<string,string|undefined>, importer?: (specifier: string) => Promise<any>,
- *           createSkillsConsole?: (() => any) }} [options]
- *   `importer` / `createSkillsConsole` 仅供测试注入。
- * @returns {Promise<{ api: any, mod: any }>}
+ * @param options `importer` / `createSkillsConsole` 仅供测试注入。
  * @throws {ConsoleResolveError} code ∈ {old-console, api-missing, api-failed, incompatible-api}
  */
-export async function resolveConsoleApi({ env = process.env, importer, createSkillsConsole } = {}) {
+export async function resolveConsoleApi({
+  env = process.env,
+  importer,
+  createSkillsConsole,
+}: ResolveConsoleApiOptions = {}): Promise<{ api: any; mod: any }> {
   // 1) 旧 console 守卫：版本 < 0.8 且 bundle 启用 → 直接 blocked，绝不建 headless。
   const profile = await readProfileConsole(env);
   if (profile && profile.enabled && profile.version && compareVersions(profile.version, MIN_CONSOLE_VERSION) < 0) {
@@ -106,9 +120,9 @@ export async function resolveConsoleApi({ env = process.env, importer, createSki
   }
 
   // 2) 动态 import 公共 API 子路径。
-  let mod;
+  let mod: any;
   try {
-    const load = importer ?? ((specifier) => import(specifier));
+    const load = importer ?? ((specifier: string) => import(specifier));
     mod = await load(CONSOLE_API_SPECIFIER);
   } catch (error) {
     throw new ConsoleResolveError(
@@ -124,7 +138,7 @@ export async function resolveConsoleApi({ env = process.env, importer, createSki
   }
 
   // 3) 创建 api（命中 registry 或 headless）。
-  let api;
+  let api: any;
   try {
     api = factory();
   } catch (error) {
