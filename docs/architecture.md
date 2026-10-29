@@ -47,7 +47,7 @@ export const REQUIRED_SKILLS = Object.freeze(referencedSkills(COMMANDS));
 - `lib/plugin-update-service.ts` 负责确认（`userQuestions.ask`）与执行：`installBundle → already-installed → removeBundle → installBundle`，返回 `application` / `restartRequired`。
 - `lib/tool-plugin-update.ts` 负责流程编排；apply 时把安装挂到 `ctx.jobs`（作业行/面板可见、可停止），成功后写 `pendingVersion`。
 - 更新自身会 `remove` 本插件、触发重载，因此工具把安装放进后台作业，并用作业完成通知 + 启动提示兜底；`ctx.get("pluginManager")` / `userQuestions` / `jobs` 都按可选服务惰性取，缺失时回退本地只读检查或给手动命令。
-- 重启后 `announcePluginUpdate()` 比对 `lastSeenVersion` / `pendingVersion`，向活跃会话补一条「已更新到 vX」的 notice（best-effort，无活跃 agent 时等下一个）。
+- 重启后 `announcePluginUpdate()` 比对 `lastSeenVersion` / `pendingVersion`，向活跃会话补一条「已更新到 vX」的 notice（best-effort；无活跃 agent 时等下一个 agent 创建补发一次，补发成功后立即注销 `agent/created` 监听，避免同进程内每个新会话重复收到）。工具写 pending 时只前进 `lastSeenVersion`、不回退。
 
 ## 执行链路
 

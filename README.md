@@ -35,7 +35,7 @@
 |---|---|---|
 | `/plugin-update` | `[--apply] [--yes]` | 默认只检查 npm 上 `@morehao/dsh-commands` 的最新版本并显示当前 / 最新；`--apply` 会**先问答确认再一键更新**，更新过程显示在后台作业里，完成后提示重启 DSH 生效；`--yes` 跳过确认（仅 apply 有效） |
 
-> 更新插件会 `remove` + `install` 重载插件本身：命令委托给 `plugin_update` 工具，确认卡、作业进度、结果都由 dsh 原生提供；更新成功后会在 `$DSH_HOME/dsh-commands/state.json` 记 pending 版本，**重启后首次加载**再给一条「已更新到 vX」提示。无 `tools`/无 agent 时回退为本地只读检查。
+> 更新插件会 `remove` + `install` 重载插件本身：命令委托给 `plugin_update` 工具，确认卡、作业进度、结果都由 dsh 原生提供；更新成功后会在 `$DSH_HOME/dsh-commands/state.json` 记 pending 版本，**重启后首次加载**再给一条「已更新到 vX」提示（同一进程内只补发一次）。无 `tools`/无 agent 时回退为本地只读检查。
 
 额外技能（例如 agent-skills 的 `tech-design`、`project-insight`）不再由插件安装：dsh 本身会扫描 `~/.agents/skills`，直接执行下面这条即可，或者用自然语言让 agent 装：
 

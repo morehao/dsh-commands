@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.4.1] - 2026-10-29
+
+### 修复
+
+- **「已更新到 vX」提示会重复弹**：`announcePluginUpdate()` 在没有活跃 agent 时注册的 `agent/created` 监听原先永不注销，同一进程里之后每个新建 / 恢复的会话都会再收到同一条 notice。现在补发成功后立即注销监听，并有 `fired` 标志防止并发重复注入；注入失败才保留监听等下一个 agent 重试。
+- **更新工具回退 `lastSeenVersion` 导致重复判定**：`removeBundle → installBundle` 会先触发插件重载，新版代码可能已经把 `lastSeenVersion` 推进到目标版本；`/plugin-update` 工具随后写 pending 时若写回旧的 `observed.currentVersion`，就会让下一次加载再次判定「有新版本」并重复提示。现在只前进不回退：已有更晚的 `lastSeenVersion` 时保留它，仅写 `pendingVersion`。
+- `scripts/smoke-plugin-update.mjs` 增加两组回归：`apply()` 后监听的「只补发一次 / 补发后注销 / 状态推进」，以及工具写 pending 时不回退已推进的 `lastSeenVersion`。
+
 ## [v0.4.0] - 2026-10-29
 
 ### 破坏性变更

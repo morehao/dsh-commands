@@ -11,6 +11,7 @@ import { runInJob } from "./job-progress.js";
 import {
 	PLUGIN_META,
 	createPluginUpdater,
+	isNewerVersion,
 	readInstalledVersion,
 	readPluginState,
 	writePluginState
@@ -239,10 +240,18 @@ export function createPluginUpdateTool({
 				}
 
 				const value = outcome.value ?? {};
-				// 为「重启后提示」留痕：当前运行版本仍是旧版，重启后新代码会比对到差异。
+				// 为「重启后提示」留痕：记下待宣告版本。removeBundle/installBundle 会先触发插件
+				// 重载，新版代码可能已经先行宣告并把 lastSeenVersion 推进到目标版本；这里若写回
+				// 旧版本（observed.currentVersion）就会回退，让下一次加载再次判定「有新版本」并重复提示。
+				const prevState = await readPluginState(env);
+				const prevLastSeen = typeof prevState.lastSeenVersion === "string" ? prevState.lastSeenVersion : null;
+				const lastSeenVersion =
+					prevLastSeen !== null && isNewerVersion(observed.currentVersion, prevLastSeen)
+						? prevLastSeen
+						: observed.currentVersion;
 				await writePluginState(env, {
-					...(await readPluginState(env)),
-					lastSeenVersion: observed.currentVersion,
+					...prevState,
+					lastSeenVersion,
 					pendingVersion: observed.latestVersion
 				});
 
