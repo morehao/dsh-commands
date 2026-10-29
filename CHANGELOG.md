@@ -2,6 +2,14 @@
 
 ## [v0.4.0] - 2026-10-29
 
+### 破坏性变更
+
+- **技能安装 / 更新改为消费 `@morehao/dsh-skills-console` 包 API**：删除 `skills` CLI 依赖、`lib/skill-cache.js`（git 缓存 / TTL）、`lib/skills-console.js`（只读 state.json）、`ensureLinks` / `linkSkill` 与 `~/.dsh/skills` 可见性建链、`DSH_COMMANDS_SKILL_BACKEND`（auto/console/cli）与整套 CLI 参数 / 网络预检。`/skill-init`（含 `--update`）现在通过 `import('@morehao/dsh-skills-console/api')` → `createSkillsConsole()` 调用 `list` / `adopt` / `install` / `update`。
+- **不再往 `~/.dsh/skills` 建链**：canonical `~/.agents/skills` 就是 DSH 的扫描根，装好即可见；两份真相（建链）会让摘链不等于不可见。已手工放好的技能按「已安装」识别，控制台账本没有时先 `adopt` 只补记账。
+- **`skills` 依赖换成 `@morehao/dsh-skills-console: >=0.7.0 <0.8.0`**（dependency，自动带上）。**不要求启用技能控制台插件**：插件启用时包内部 runtime registry 让 `createSkillsConsole()` 复用插件实例、共享同一个 StateStore（单写者）；未启用时创建 headless 实例单写。
+- **旧 console 守卫**：profile 顶层启用的是 <0.7.0 的技能控制台时，`/skill-init` 直接 `blocked` 并提示升级，绝不创建 headless 实例导致双写。
+- `DSH_COMMANDS_SKILL_SOURCE` 保留为 `install({ source })` 的来源覆盖，**只支持 GitHub 源**（owner/repo 或 GitHub URL）；本地目录源 v1 不支持。离线安装能力随 git 缓存一并移除（`/skill-init` 需要能访问上游）。
+
 ### 修复
 
 - **与 `dsh-skills-console` 0.6.0（state v4）兼容**：`lib/skills-console.js` 的 `readConsoleState` 现在读取 `version` 并归一化 `mode`——v1/v2 `off|on`、v3 `enabled`、v4 `enabled` + `auto|manual|hidden`，未来版本（>4）一律 `unknown`。`resolveOwnership` / `planOperation` / `checkContract` 对 `off/hidden/manual/unknown` 一律只读不写（`writes:false`），不再把「停用/仅手动/完全停用」误当成启用。
@@ -11,6 +19,9 @@
 
 ### 变更
 
+- 命令 / 工具流程简化为 **resolve-api → observe（api.list + canonical 文件存在性）→ adopt → plan → confirm → apply（api.install / api.update）→ verify**；计划动作收敛为 `install` / `update` / `delegate` / `blocked`（不再有 `relink` 与链状态字段）。
+- `update` 结果按 API 状态区分：`updated` / `current` / `locally-modified`（不覆盖、回执提示）/ `parked` / `no-subscription` / `not-managed` / `failed`。
+- 离线冒烟全部改为注入 fake API：`smoke-skill-setup`（安装 / 幂等 / 更新 / 只补缺失 / API 缺失 blocked / 旧 console 守卫）、`smoke-skill-plan`（observe/plan 矩阵）、`smoke-skill-tool`（工具矩阵 + 确认不变量）；删除 `smoke-skill-cache.mjs`。
 - **清单规范**：`package.json` 增加 `engines.dsh`（`>=0.2.1-rc.3 <0.3.0-0`）与可选 `peerDependencies`（`@deepseek-ai/dsh-tools` / `@deepseek-ai/dsh-llm`，`peerDependenciesMeta.optional`），`skills` 从 `latest` 固定为 `~1.7.4`，依赖可复现。
 - **命令稳定身份**：注册时传 `definitionId`（`dsh-commands:<name>`），命令身份稳定、可被 adapter 定向覆盖。
 - **消息构造优先官方实现**：注入的 user / notice 消息优先用 `@deepseek-ai/dsh-llm` 的 `createUserMessage`（`apply()` 里可选加载），无该模块（离线 / 旧宿主）时回退本地契约实现；`lib/` 仍无顶层 `@deepseek-ai/*` 静态 import，离线冒烟不受影响。
