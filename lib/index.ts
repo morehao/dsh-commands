@@ -357,7 +357,7 @@ function deliverNotice(ctx, text, home) {
 			// 单个 agent 注入失败不影响其它
 		}
 	}
-	const onCreated = async ({ agent } = {}) => {
+	const onCreated = async ({ agent }: any = {}) => {
 		try {
 			if (typeof agent?.inject === "function") {
 				agent.inject(build());
@@ -404,7 +404,7 @@ async function announcePluginUpdate(ctx, home) {
 		}
 		const last = typeof state.lastSeenVersion === "string" ? state.lastSeenVersion : null;
 		const pending = typeof state.pendingVersion === "string" ? state.pendingVersion : null;
-		let text = null;
+		let text: string | null = null;
 		if (pending !== null && pending === current && last !== current) text = `dsh-commands 已更新到 v${current}。`;
 		else if (last !== null && last !== current) text = `dsh-commands 已更新：v${last} → v${current}。`;
 		if (text === null) {
