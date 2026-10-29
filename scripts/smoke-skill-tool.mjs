@@ -493,7 +493,7 @@ try {
 		check(pending !== null && typeof pending?.then === "function", "24. apply 是 async（工具注册需要动态 import）");
 		await pending;
 		await sleep(10);
-		check(effects === 1 && commands.length === COMMANDS.length + 1, "24. 宿主无 dsh-tools：命令照常注册", JSON.stringify({ effects, commands: commands.length }));
+		check(effects === 1 && commands.length === COMMANDS.length + 2, "24. 宿主无 dsh-tools：命令照常注册", JSON.stringify({ effects, commands: commands.length }));
 	}
 
 	// ---- 25) R1：停止 → 生产者结算 killed（不是 failed）-------------------

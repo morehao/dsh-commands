@@ -1,7 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [v0.3.3] - 2026-10-29
 
+### 新增
+
+- **新增 `/plugin-update` 维护命令**：只读检查本插件自身在 npm 上的最新版本（当前 / 最新版本），有更新时给出可复制的 `dsh plugin --profile <p> add @morehao/dsh-commands@latest`。**不一键安装**：更新自己会 `remove` + `install` 重载插件，命令卡可能来不及结算；需要更新请退出 dsh 后按命令执行。核心为 `lib/plugin-update.js`（registry 计划继承宿主镜像/私源、8s 超时、5 分钟缓存、手写 semver 比较，零宿主 import），命令层为 `lib/plugin-update-command.js`；新增 `scripts/smoke-plugin-update.mjs` 并接入 `npm test`。
 ## [v0.3.2] - 2026-10-28
 
 ### 新增

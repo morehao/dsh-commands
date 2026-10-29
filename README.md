@@ -29,6 +29,14 @@
 |---|---|---|
 | `/skill-init` | `[--update [技能名...]] [--yes]` | 检查并安装插件依赖的技能，软链进 dsh；**只在确定要写盘时**弹确认（缺失/待修复）。上游有更新的技能不会被静默覆盖：`/skill-init` 只报告，装到最新要用 `--update`（可指定技能名，显式更新不弹确认）；`--yes` 跳过确认 |
 
+维护型本地执行（检查插件**自身**是否有新版本，与技能无关）：
+
+| 命令 | 参数 | 作用 |
+|---|---|---|
+| `/plugin-update` | 无 | 查 npm 上 `@morehao/dsh-commands` 的最新版本，显示当前 / 最新版本；**只检查、不自动安装**。有更新时给出手动命令：退出 dsh 后执行 `dsh plugin --profile <profile> add @morehao/dsh-commands@latest` |
+
+> `/plugin-update` 故意不做一键安装：更新自己会触发 `remove` + `install` 重载本插件，命令卡可能来不及结算。dsh 插件页本身也能更新插件，这条命令提供的是会话内的只读检查。
+
 额外技能（例如 agent-skills 的 `tech-design`、`project-insight`）不再由插件安装：dsh 本身会扫描 `~/.agents/skills`，直接执行下面这条即可，或者用自然语言让 agent 装：
 
 ```bash
