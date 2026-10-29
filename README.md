@@ -2,7 +2,7 @@
 
 一个可扩展的 **dsh 原生斜杠命令集合包**（npm：`@morehao/dsh-commands`）。把 [`morehao/agent-skills`](https://github.com/morehao/agent-skills) 的 **git-kit**（Git 工作流）、**handoff**（跨会话交接）与 **disk-cleanup**（磁盘空间回收）接入为 dsh 命令。
 
-命令只声明「命令 → 技能分支」的意图，执行逻辑与唯一真源在对应 skill 里，因此与 opencode 入口、自然语言触发共用同一套实现。本仓不含 skill 逻辑；将来其它 skill 的命令，往 `lib/index.js` 的 `COMMANDS` 表加一行即可。技能的安装 / 更新委托给 [`@morehao/dsh-skills-console`](https://github.com/morehao/dsh-skills-console) 的包 API（本插件 dependency，自动带上），**不要求启用技能控制台插件**。
+命令只声明「命令 → 技能分支」的意图，执行逻辑与唯一真源在对应 skill 里，因此与 opencode 入口、自然语言触发共用同一套实现。本仓不含 skill 逻辑；将来其它 skill 的命令，往 `lib/index.ts` 的 `COMMANDS` 表加一行即可。技能的安装 / 更新委托给 [`@morehao/dsh-skills-console`](https://github.com/morehao/dsh-skills-console) 的包 API（本插件 dependency，自动带上），**不要求启用技能控制台插件**。
 
 ## 命令
 
@@ -73,7 +73,7 @@ dsh plugin --profile <profile> add @morehao/dsh-commands
 - 编辑技能内容（本源 `~/.agents/skills/...`）**无需重启**，下次执行即生效。
 - 委托型命令执行前会确认依赖技能可用：优先问 DSH 技能目录（`ctx.skills.list()`，权威、已校验），目录不可用时回退文件探测（`$DSH_HOME/skills`、`$DSH_AGENTS_HOME/skills` 或 `~/.agents/skills`，顺序固定）；缺失时不注入消息，直接返回 `/skill-init` 与手工 `npx` 两条修复路径。控制台把技能设为停用 / 完全停用 / 仅手动时也会提前给原因。
 - 维护型委托 `/skill-init`（含 `--update`）注入一条 user 消息，由 agent 调用 `skill_init` 工具（`mode=init/update/check`、`names`、`yes`）：默认先确认；无确认通道时只返回计划、不写盘；`yes=true` 只跳过确认，不跳过 apiVersion 校验与旧 console 版本守卫。
-- 命令与工具共用 `lib/skill-setup.js` 的 observe/plan/apply/verify，安装/更新经 `lib/console-api.js` 解析出的包 API 执行；无 `tools`、无 `agent.followup` 或注入失败时，命令回退到 `runSkillInit` / `runSkillUpdate`，旧宿主仍可用。
+- 命令与工具共用 `lib/skill-setup.ts` 的 observe/plan/apply/verify，安装/更新经 `lib/console-api.ts` 解析出的包 API 执行；无 `tools`、无 `agent.followup` 或注入失败时，命令回退到 `runSkillInit` / `runSkillUpdate`，旧宿主仍可用。
 - 修改插件源码（含 `COMMANDS` 表）需重启 dsh web；只有以 `link:` 方式接入时才改源码即生效，npm 版是拷贝。
 - 命令描述直接写中文：dsh 目前不向第三方提供描述文本的 i18n 钩子。
 
@@ -82,14 +82,15 @@ dsh plugin --profile <profile> add @morehao/dsh-commands
 ## 开发
 
 ```bash
-npm run check                           # 本地全量：语法扫描 / 命名 / 打包 / Release 投影 + 全部离线冒烟
+npm run build                           # tsc 把 lib/*.ts 编译到 dist/（产物不入库）
+npm run check                           # 本地全量：构建 + 产物自检 + 语法扫描 / 命名 / 打包 / Release 投影 + 全部离线冒烟
 npm test                                # 全部离线冒烟（注入 fake API / stub，不联网）
 node scripts/check-skill-contract.mjs   # 命令 → 技能分支的跨仓契约（需技能已安装）
 node scripts/smoke-skill-setup.mjs      # 技能自举（API 消费 / 旧 console 守卫，不联网）
 node scripts/smoke-skill-contract.mjs   # 契约校验：技能根顺序 / 缺分支 / 缺技能去重（临时 HOME）
 ```
 
-CI 在 PR 上校验发布脚本语法、全量插件语法（扫 `lib/`、`scripts/` 与 locale JSON）、三处命名一致、打包白名单、Release 正文投影与全部离线冒烟（`npm test`），用的就是上面这几个 npm script。扩展命令、测试细节与命名约定见 [开发与测试](./docs/development.md)。
+CI 在 PR 上先 `npm ci` + `npm run build`（`tsc` 把 `lib/*.ts` 编译到 `dist/`），再校验发布脚本语法、`scripts/` 语法与 locale JSON、三处命名一致、打包白名单、Release 正文投影与全部离线冒烟（`npm test`），用的就是上面这几个 npm script。扩展命令、测试细节与命名约定见 [开发与测试](./docs/development.md)。
 
 ## 发布
 

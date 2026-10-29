@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * 逐文件语法自检：`node --check` 一次只看一个文件，这里把 `lib/` 与 `scripts/`
- * 全扫一遍，另校验 `locale/*.json` 能被 JSON.parse。
+ * 逐文件语法自检：`node --check` 一次只看一个文件，这里把 `scripts/` 全扫一遍，
+ * 另校验 `locale/*.json` 能被 JSON.parse。`lib/*.ts` 的类型/语法由 `tsc`（npm run build）负责。
  *
- * 为什么要有这一层：原先 `.github/workflows/check.yml` 里硬编码了 12 个文件名，
- * 新增 `lib/xxx.js` 忘了往 YAML 里加就静默漏检；扫描目录后新增文件自动纳入。
+ * 为什么要有这一层：原先 `.github/workflows/check.yml` 里硬编码了文件名，
+ * 新增 `scripts/xxx.mjs` 忘了往 YAML 里加就静默漏检；扫描目录后新增文件自动纳入。
  *
  * 只做语法，不执行业务逻辑（需要行为断言请写冒烟）。
  */

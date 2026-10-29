@@ -1,6 +1,6 @@
 # 过程可见：后台作业与确认
 
-`/skill-init` 的安装/更新可能真下上游（首次 clone 约 8 秒；之后 TTL 内约 0.4–1 秒，TTL 过期检查上游约 4–5 秒）。`skill_init` 工具把这些工作挂到 dsh 的**后台任务**上（`lib/job-progress.js`，用 `ctx.jobs`；base 组合已含 `dsh-jobs-local` + `dsh-tool-jobs`）。
+`/skill-init` 的安装/更新可能真下上游（首次 clone 约 8 秒；之后 TTL 内约 0.4–1 秒，TTL 过期检查上游约 4–5 秒）。`skill_init` 工具把这些工作挂到 dsh 的**后台任务**上（`lib/job-progress.ts`，用 `ctx.jobs`；base 组合已含 `dsh-jobs-local` + `dsh-tool-jobs`）。
 
 从 0.3.0 起，本插件不再自带 web client half：作业行、作业面板、停止控件、完成感知都由 dsh 原生 UI 提供。插件只负责三件事：
 
@@ -71,8 +71,8 @@
 
 ## 代码位置
 
-- `lib/job-progress.js`：`runInJob` / `NO_REPORTER` / `cancel` 结算；
-- `lib/tool-skill-init.js`：确认 → 指纹 → 作业 → verify；
-- `lib/skill-setup.js`：`applyPlan` / `probeUpstream` / `verifyPlan`，只认 `reporter.progress` / `reporter.write`，不直接碰 `ctx.jobs`；
-- `lib/skill-confirm.js`：确认问题/选项；
+- `lib/job-progress.ts`：`runInJob` / `NO_REPORTER` / `cancel` 结算；
+- `lib/tool-skill-init.ts`：确认 → 指纹 → 作业 → verify；
+- `lib/skill-setup.ts`：`applyPlan` / `probeUpstream` / `verifyPlan`，只认 `reporter.progress` / `reporter.write`，不直接碰 `ctx.jobs`；
+- `lib/skill-confirm.ts`：确认问题/选项；
 - 已删除：`lib/client.js`（命令卡/toast/未读点）与 `lib/confirm.js`（旧命令确认适配）。

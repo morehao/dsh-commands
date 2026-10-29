@@ -29,6 +29,8 @@
 - **状态文件路径**：`dsh-commands/state.json` 优先取 `profileContext.home`，缺省回退 `$DSH_HOME`。
 - 新增 / 扩展离线冒烟：console v1/v3/v4 state 归一化与 `off/hidden/manual/unknown` 均 `writes:false`；技能目录命中 / 缺失 / 回退与 `modelInvocable:false`；官方消息工厂优先；`pnpm view` 命中与回退。
 
+- **改用 TypeScript**：`lib/*.js` → `lib/*.ts`，由 `tsc`（`tsconfig.host.json`）编译到 `dist/`（构建产物**不入库**）；新增 `scripts/build-host.mjs`、`scripts/check-artifact.mjs`、`lib/types.d.ts`、`lib/optional-peers.d.ts`；`npm run build` / `prepare` / `prepack` / `pretest` 负责构建，`check`/CI 增加 `npm ci` + build。命令表、注入文案与运行行为不变。
+
 ## [v0.3.4] - 2026-10-29
 
 ### 变更

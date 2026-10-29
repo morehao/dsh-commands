@@ -6,7 +6,7 @@
 
 每条命令注册到 `ctx.commands`（`CommandDefinition`：`name` / `description` / `input.hint` / `recordInput` / `handler`），出现在 dsh 斜杠菜单。
 
-`lib/index.js` 里的 `COMMANDS` 是**自包含的意图表**：一行声明 = 注册元数据 + 对应的 skill 分支 key（`branch`；`skill` 省略时默认 `git-kit`）。它**不读取任何仓库文件**，逻辑与路由的唯一真源在各 skill（`SKILL.md` 意图决策树 + `references/` + `scripts/`）。
+`lib/index.ts` 里的 `COMMANDS` 是**自包含的意图表**：一行声明 = 注册元数据 + 对应的 skill 分支 key（`branch`；`skill` 省略时默认 `git-kit`）。它**不读取任何仓库文件**，逻辑与路由的唯一真源在各 skill（`SKILL.md` 意图决策树 + `references/` + `scripts/`）。
 
 ```js
 {
@@ -26,9 +26,9 @@ export const REQUIRED_SKILLS = Object.freeze(referencedSkills(COMMANDS));
 
 新增/删除委托型命令后，技能自举与 `--update` 自动跟进，不需要维护第二份清单。
 
-`/skill-init` 不在本地执行：handler 解析 `--update` / `--yes` / 技能名，构造一条 **`source.kind: "user"`** 的消息注入当前会话，让 agent 调用 `skill_init` 工具（实现在 `lib/skill-command.js`）。命令卡只返回一行「已开始检查依赖技能 / 已开始更新依赖技能」。
+`/skill-init` 不在本地执行：handler 解析 `--update` / `--yes` / 技能名，构造一条 **`source.kind: "user"`** 的消息注入当前会话，让 agent 调用 `skill_init` 工具（实现在 `lib/skill-command.ts`）。命令卡只返回一行「已开始检查依赖技能 / 已开始更新依赖技能」。
 
-`lib/tool-skill-init.js` 是 `skill_init` 的纯定义：`lib/index.js` 在 `ctx.get("tools")` 可用且动态 `import("@deepseek-ai/dsh-tools")` 成功时注册（`apply` 是 async：先可选加载官方消息工厂，再 `await ctx.commands.register(...)` 注册命令，`register()` 内部已绑定调用方 fiber，卸载自动注销）；旧宿主或 import 失败只跳过工具，命令回退不变。
+`lib/tool-skill-init.ts` 是 `skill_init` 的纯定义：`lib/index.ts` 在 `ctx.get("tools")` 可用且动态 `import("@deepseek-ai/dsh-tools")` 成功时注册（`apply` 是 async：先可选加载官方消息工厂，再 `await ctx.commands.register(...)` 注册命令，`register()` 内部已绑定调用方 fiber，卸载自动注销）；旧宿主或 import 失败只跳过工具，命令回退不变。
 
 工具的 execute 顺序固定：
 
@@ -39,13 +39,13 @@ export const REQUIRED_SKILLS = Object.freeze(referencedSkills(COMMANDS));
 5. `runInJob()` 把 `probeUpstream`（缓存过期时）与 `applyPlan` 挂到 dsh 后台作业；`owner` 取 `exec.agent.session.id`；
 6. `verifyPlan()` 复核 canonical/links/state，结果里给 `status` / `actions` / `contract` / `verification` / `next` / `markdown`。
 
-命令与工具共用 `lib/skill-setup.js` 的 observe/plan/apply/verify；无 `tools`、无 `agent.followup` 或注入失败时，handler 回退到 `runSkillInit` / `runSkillUpdate`（本地执行，无 agent 回合），保证旧宿主不丢功能。
+命令与工具共用 `lib/skill-setup.ts` 的 observe/plan/apply/verify；无 `tools`、无 `agent.followup` 或注入失败时，handler 回退到 `runSkillInit` / `runSkillUpdate`（本地执行，无 agent 回合），保证旧宿主不丢功能。
 
 `/plugin-update` 是第二条**维护型委托**命令：handler 解析 `--apply` / `--yes` 后注入一条 user 消息，让 agent 调用 `plugin_update` 工具。工具内 observe → plan → confirm → apply → verify：
 
-- `lib/plugin-update.js` 从自身 `package.json` 取包名/版本；最新版优先走 `pnpm view <pkg>@latest version --json`（继承 profile 的镜像/私源/token），拿不到再用 `ctx.get("pluginManager").registries()` 的 registry 计划（含镜像/私源）依次查 `<pkg>/latest`（8s 超时、5 分钟缓存），手写 semver 比较；另含状态文件 `<home>/dsh-commands/state.json` 的读写（`home` 优先取 `profileContext.home`，缺省 `$DSH_HOME`）。
-- `lib/plugin-update-service.js` 负责确认（`userQuestions.ask`）与执行：`installBundle → already-installed → removeBundle → installBundle`，返回 `application` / `restartRequired`。
-- `lib/tool-plugin-update.js` 负责流程编排；apply 时把安装挂到 `ctx.jobs`（作业行/面板可见、可停止），成功后写 `pendingVersion`。
+- `lib/plugin-update.ts` 从自身 `package.json` 取包名/版本；最新版优先走 `pnpm view <pkg>@latest version --json`（继承 profile 的镜像/私源/token），拿不到再用 `ctx.get("pluginManager").registries()` 的 registry 计划（含镜像/私源）依次查 `<pkg>/latest`（8s 超时、5 分钟缓存），手写 semver 比较；另含状态文件 `<home>/dsh-commands/state.json` 的读写（`home` 优先取 `profileContext.home`，缺省 `$DSH_HOME`）。
+- `lib/plugin-update-service.ts` 负责确认（`userQuestions.ask`）与执行：`installBundle → already-installed → removeBundle → installBundle`，返回 `application` / `restartRequired`。
+- `lib/tool-plugin-update.ts` 负责流程编排；apply 时把安装挂到 `ctx.jobs`（作业行/面板可见、可停止），成功后写 `pendingVersion`。
 - 更新自身会 `remove` 本插件、触发重载，因此工具把安装放进后台作业，并用作业完成通知 + 启动提示兜底；`ctx.get("pluginManager")` / `userQuestions` / `jobs` 都按可选服务惰性取，缺失时回退本地只读检查或给手动命令。
 - 重启后 `announcePluginUpdate()` 比对 `lastSeenVersion` / `pendingVersion`，向活跃会话补一条「已更新到 vX」的 notice（best-effort，无活跃 agent 时等下一个）。
 
@@ -97,7 +97,7 @@ dsh 只本地化它自己的 6 条一方命令：客户端 `HOST_DESCRIPTION_KEY
 ## 生效与重启
 
 - 编辑技能（本源 `~/.agents/skills/{git-kit,handoff,disk-cleanup}/`，或 `$DSH_HOME/skills` 下的软链）**无需重启**，下次执行即生效——技能由 agent-skills 提供，与本插件版本无关。技能根有 watcher，安装完也免重启。
-- 修改本插件 `lib/index.js`（含 `COMMANDS` 表）需重启 dsh web 生效。
+- 修改本插件 `lib/index.ts`（含 `COMMANDS` 表）需先 `npm run build`，再重启 dsh web 生效（产物在 `dist/`）。
 - **只有以 `link:` 方式接入时改源码才生效**：若 profile 里装的是 npm 版（`dsh plugin --profile web add @morehao/dsh-commands`），profile 下的 `node_modules` 是一份**拷贝**，改仓库源码不会生效，需先升版本发版再重装。
 
 ## 插件页展示元信息
@@ -112,7 +112,7 @@ dsh 的插件页（侧栏「插件」→ 组合包详情与组件行）在**不�
 
 ## 扩展命令
 
-往 `lib/index.js` 的 `COMMANDS` 表加一条声明即可，无需改注册代码：
+往 `lib/index.ts` 的 `COMMANDS` 表加一条声明即可，无需改注册代码：
 
 - `branch` 必须与对应 `SKILL.md` 决策树的分支 key 一致（即 `references/<branch>.md`）；`skill` 省略时默认 `git-kit`。
 - `hint` + `required` 决定输入提示与校验；`description` 会原样出现在斜杠菜单（见上文 i18n 说明）。
