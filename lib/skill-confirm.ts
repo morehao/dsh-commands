@@ -15,55 +15,55 @@ const CANCEL = "取消";
 const QUESTION_ID = "confirm-skill-init";
 export const PASS_THROUGH_NOTE = "确认：当前会话不支持交互确认，已直接执行。";
 
-const usable = (userQuestions) => typeof userQuestions?.ask === "function";
+const usable = (userQuestions: any): boolean => typeof userQuestions?.ask === "function";
 
-const firstLine = (error) => {
+const firstLine = (error: unknown): string => {
   const message = error instanceof Error ? error.message : String(error);
   return message.split("\n")[0]?.trim() ?? "";
 };
 
 /** 把名称列表压成一行；太长时只报数量，避免问题卡被撑爆。 */
-function namesLine(names, max = 8) {
+function namesLine(names: string[], max = 8): string {
   if (names.length <= max) return names.join("、");
   return `${names.slice(0, max).join("、")} 等 ${names.length} 个`;
 }
 
 /** 这次是否有需要用户确认的副作用（只有确定要写盘才算）。 */
-export function needsConfirmation(plan) {
+export function needsConfirmation(plan: any): boolean {
   if (plan === undefined || plan.skipReason !== undefined) return false;
   // `--update` 走强制更新分支，显式更新不打断。
   if (plan.kind === "skill-update") return false;
   if (plan.confirm !== undefined) return plan.confirm.needs === true;
   const actions = plan.actions ?? [];
-  return actions.some((action) => action.type === "install" || action.type === "update");
+  return actions.some((action: any) => action.type === "install" || action.type === "update");
 }
 
 /** 单个技能的现状 → 用户能一眼看懂的状态与动作。 */
-function stateLine(state) {
+function stateLine(state: any): { icon: string; status: string; action: string } {
   return state.state === "missing"
     ? { icon: "✗", status: "未安装", action: "将安装" }
     : { icon: "✓", status: "已安装", action: "保持不变" };
 }
 
 /** 按本次 plan 生成问题、说明和选项；不依赖具体安装实现。 */
-export function confirmationRequest(plan) {
+export function confirmationRequest(plan: any): { header: string; question: string; detail: string; options: any[] } {
   const actions = plan.actions ?? [];
-  const installs = actions.filter((action) => action.type === "install");
-  const updates = actions.filter((action) => action.type === "update");
+  const installs = actions.filter((action: any) => action.type === "install");
+  const updates = actions.filter((action: any) => action.type === "update");
   const states = plan.states ?? [];
-  const missing = states.filter((state) => state.state === "missing");
+  const missing = states.filter((state: any) => state.state === "missing");
   const details = ["技能现状："];
   for (const state of states) {
     const line = stateLine(state);
     details.push(`${line.icon} ${state.name} — ${line.status}${line.action === "保持不变" ? "" : ` → ${line.action}`}`);
   }
-  if (updates.length > 0) details.push(`将更新：${namesLine(updates.map((action) => action.name))}`);
+  if (updates.length > 0) details.push(`将更新：${namesLine(updates.map((action: any) => action.name))}`);
   if (plan.source !== undefined) details.push(`来源：${plan.source}`);
   details.push("执行过程会显示在会话头部「作业」里，可随时停止。");
 
   const pending = installs.length + updates.length;
   const question = `处理这 ${pending} 个技能？`;
-  const options = [];
+  const options: any[] = [];
   if (installs.length > 0) {
     options.push({ label: CONTINUE_ALL, description: `安装 ${installs.length} 个缺失技能${updates.length > 0 ? `、更新 ${updates.length} 个` : ""}` });
     if (missing.length > 0 && installs.length > 1) {
@@ -78,23 +78,30 @@ export function confirmationRequest(plan) {
 }
 
 /** 选项 label → run 阶段使用的 choice；取消单独返回。 */
-function choiceOf(label) {
+function choiceOf(label: string): "cancel" | "missing" | "all" | undefined {
   if (label === CANCEL) return "cancel";
   if (label === CONTINUE_MISSING) return "missing";
   if (label === CONTINUE_ALL) return "all";
   return undefined;
 }
 
+export type ConfirmSkillAction =
+  | { action: "proceed"; choice?: "all" | "missing"; note?: string }
+  | { action: "cancel" }
+  | { action: "plan"; note?: string };
+
 /**
  * 在副作用之前询问用户。
- *
- * @returns {Promise<
- *   | { action: "proceed", choice?: "all" | "missing", note?: string }
- *   | { action: "cancel" }
- *   | { action: "plan", note?: string }
- * >}
  */
-export async function confirmSkillPlan({ userQuestions, agent, plan, signal, yes = false, detail, onError = "proceed" } = {}) {
+export async function confirmSkillPlan({
+  userQuestions,
+  agent,
+  plan,
+  signal,
+  yes = false,
+  detail,
+  onError = "proceed",
+}: any = {}): Promise<ConfirmSkillAction> {
   if (yes === true) return { action: "proceed", choice: "all" };
   if (!needsConfirmation(plan)) return { action: "proceed" };
   if (!usable(userQuestions) || agent === undefined || agent === null) {
@@ -102,7 +109,7 @@ export async function confirmSkillPlan({ userQuestions, agent, plan, signal, yes
   }
 
   const request = confirmationRequest(plan);
-  let answer;
+  let answer: any;
   try {
     answer = await userQuestions.ask({
       questions: [
@@ -129,7 +136,7 @@ export async function confirmSkillPlan({ userQuestions, agent, plan, signal, yes
     return { action: "proceed", note: `确认：交互不可用（${firstLine(error)}），已直接执行。` };
   }
 
-  const item = answer?.answers?.find((entry) => entry.id === QUESTION_ID);
+  const item = answer?.answers?.find((entry: any) => entry.id === QUESTION_ID);
   const selected = item?.selected?.[0];
   const custom = item?.custom?.trim() ?? "";
   if (selected !== undefined) {
