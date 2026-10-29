@@ -28,7 +28,7 @@ export const REQUIRED_SKILLS = Object.freeze(referencedSkills(COMMANDS));
 
 `/skill-init` 不在本地执行：handler 解析 `--update` / `--yes` / 技能名，构造一条 **`source.kind: "user"`** 的消息注入当前会话，让 agent 调用 `skill_init` 工具（实现在 `lib/skill-command.js`）。命令卡只返回一行「已开始检查依赖技能 / 已开始更新依赖技能」。
 
-`lib/tool-skill-init.js` 是 `skill_init` 的纯定义：`lib/index.js` 在 `ctx.get("tools")` 可用且动态 `import("@deepseek-ai/dsh-tools")` 成功时注册（`apply` 因此是 async，但命令注册仍在第一个 `await` 之前同步完成）；旧宿主或 import 失败只跳过工具，命令回退不变。
+`lib/tool-skill-init.js` 是 `skill_init` 的纯定义：`lib/index.js` 在 `ctx.get("tools")` 可用且动态 `import("@deepseek-ai/dsh-tools")` 成功时注册（`apply` 是 async：先可选加载官方消息工厂，再 `await ctx.commands.register(...)` 注册命令，`register()` 内部已绑定调用方 fiber，卸载自动注销）；旧宿主或 import 失败只跳过工具，命令回退不变。
 
 工具的 execute 顺序固定：
 
@@ -43,7 +43,7 @@ export const REQUIRED_SKILLS = Object.freeze(referencedSkills(COMMANDS));
 
 `/plugin-update` 是第二条**维护型委托**命令：handler 解析 `--apply` / `--yes` 后注入一条 user 消息，让 agent 调用 `plugin_update` 工具。工具内 observe → plan → confirm → apply → verify：
 
-- `lib/plugin-update.js` 从自身 `package.json` 取包名/版本，优先用 `ctx.get("pluginManager").registries()` 的 registry 计划（含镜像/私源），依次查 `<pkg>/latest`（8s 超时、5 分钟缓存），手写 semver 比较；另含状态文件 `$DSH_HOME/dsh-commands/state.json` 的读写。
+- `lib/plugin-update.js` 从自身 `package.json` 取包名/版本；最新版优先走 `pnpm view <pkg>@latest version --json`（继承 profile 的镜像/私源/token），拿不到再用 `ctx.get("pluginManager").registries()` 的 registry 计划（含镜像/私源）依次查 `<pkg>/latest`（8s 超时、5 分钟缓存），手写 semver 比较；另含状态文件 `<home>/dsh-commands/state.json` 的读写（`home` 优先取 `profileContext.home`，缺省 `$DSH_HOME`）。
 - `lib/plugin-update-service.js` 负责确认（`userQuestions.ask`）与执行：`installBundle → already-installed → removeBundle → installBundle`，返回 `application` / `restartRequired`。
 - `lib/tool-plugin-update.js` 负责流程编排；apply 时把安装挂到 `ctx.jobs`（作业行/面板可见、可停止），成功后写 `pendingVersion`。
 - 更新自身会 `remove` 本插件、触发重载，因此工具把安装放进后台作业，并用作业完成通知 + 启动提示兜底；`ctx.get("pluginManager")` / `userQuestions` / `jobs` 都按可选服务惰性取，缺失时回退本地只读检查或给手动命令。
@@ -51,14 +51,14 @@ export const REQUIRED_SKILLS = Object.freeze(referencedSkills(COMMANDS));
 
 ## 执行链路
 
-1. 用户从斜杠菜单执行命令，进入 `makeHandler(def)`（委托型）、`makeSkillInitHandler()`（维护型委托）或 `makePluginUpdateHandler()`（维护型委托，插件自身更新）。
-2. 委托型：handler 校验必填输入（`required`），缺失时返回 `Usage: /<name> <hint>` 示例；随后预检依赖技能（`$DSH_HOME/skills`、`$DSH_AGENTS_HOME/skills` 或 canonical `~/.agents/skills`），缺失时不注入委托，直接返回 `/skill-init` 与手工 `npx` 两条修复路径。`/skill-init` 自己就是安装器，不做技能预检。
+1. 用户从斜杠菜单执行命令，进入 `makeHandler(def, ctx)`（委托型）、`makeSkillInitHandler()`（维护型委托）或 `makePluginUpdateHandler()`（维护型委托，插件自身更新）。
+2. 委托型：handler 校验必填输入（`required`），缺失时返回 `Usage: /<name> <hint>` 示例；随后预检依赖技能可用性——优先 `ctx.get("skills").list({ cwd })`（权威、已校验，能识别 `disable-model-invocation` 等被过滤的技能），目录不可用时回退文件探测（`$DSH_HOME/skills`、`$DSH_AGENTS_HOME/skills` 或 canonical `~/.agents/skills`）；缺失时不注入委托，直接返回 `/skill-init` 与手工 `npx` 两条修复路径。`/skill-init` 自己就是安装器，不做技能预检。
 3. `buildInstruction(def, input)`（或 `buildSkillInitMessage()`）生成一段委托指令。
 4. 指令被包装成一条 **user 消息**，通过 `invocation.agent.followup()` 注入当前会话。
 5. 委托型命令由 agent 用 `skill` 工具加载对应 skill，把本次请求视为 `branch` 分支执行；`/skill-init` 由 agent 调用 `skill_init` 工具，确认/进度/停止都在工具里。
 6. 命令卡片返回一行结算文案（`已按 … 委托执行…` / `已开始检查依赖技能`）。
 
-user 消息由 `userMessage()` **手工构造**，形态与官方 `createUserMessage` 的契约一致（`role` / `source` / `content` / `id` 齐全，深冻结），因此本模块不依赖任何 `@deepseek-ai/*` 运行时 import。`source` 字段必填——dsh 的 Message 契约会读 `message.source.kind`，缺失会在 agent 回合崩溃。
+user 消息优先用 DSH 官方 `@deepseek-ai/dsh-llm` 的 `createUserMessage`（`apply()` 里经 `try { await import("@deepseek-ai/dsh-llm") } catch {}` 可选加载；含 `id` 与深冻结）；没有该模块（离线冒烟 / 非 DSH 宿主）时回退到等价的本地契约实现（`role` / `source` / `content` / `id` 齐全，深冻结）。因此 `lib/` 仍**不引入**任何顶层 `@deepseek-ai/*` 静态 import。`source` 字段必填——dsh 的 Message 契约会读 `message.source.kind`，缺失会在 agent 回合崩溃。
 
 ### handoff 的 readFallback（历史兼容）
 

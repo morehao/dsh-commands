@@ -87,6 +87,34 @@ const failFetch = async () => {
 	check(down.checkFailed === true && down.latestVersion === null, "3. 网络失败 checkFailed");
 }
 
+// ---- 3b) pnpm view 优先（继承 profile registry/token）-------------------
+{
+	let fetched = 0;
+	const viaPnpm = await createPluginUpdater({
+		meta: META,
+		runPnpmView: async () => "9.9.9",
+		fetchImpl: async () => {
+			fetched += 1;
+			return { ok: true, json: async () => ({ version: "0.0.1" }) };
+		}
+	}).check();
+	check(viaPnpm.latestVersion === "9.9.9" && viaPnpm.updateAvailable === true && fetched === 0, "3b. pnpm view 命中：不 fetch", JSON.stringify({ viaPnpm, fetched }));
+
+	fetched = 0;
+	const fallback = await createPluginUpdater({
+		meta: META,
+		runPnpmView: async () => null,
+		fetchImpl: async () => {
+			fetched += 1;
+			return { ok: true, json: async () => ({ version: "9.9.9" }) };
+		}
+	}).check();
+	check(fallback.latestVersion === "9.9.9" && fetched === 1, "3b. pnpm view 取不到：回退 fetch", JSON.stringify({ fallback, fetched }));
+
+	const noProfile = await createPluginUpdater({ meta: META, fetchImpl: okFetch("9.9.9") }).check();
+	check(noProfile.latestVersion === "9.9.9", "3b. 无 profile：直接回退 fetch", JSON.stringify(noProfile));
+}
+
 // ---- 4) 命令解析 -------------------------------------------------------
 {
 	check(parsePluginUpdateInput("").mode === "check" && parsePluginUpdateInput("").yes === false, "4. 空输入 → check");

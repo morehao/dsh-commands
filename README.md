@@ -49,6 +49,8 @@ npx -y skills add morehao/agent-skills --skill tech-design -g -a universal -y
 
 **插件走 npm，技能走软链。**
 
+要求：dsh `>=0.2.1-rc.3 <0.3.0-0`（`engines.dsh`）+ Node.js `>=22.20`；低于该范围的宿主会在 bundle 加载阶段被跳过。
+
 ```bash
 # 退出 dsh 客户端后执行，装完再启动
 dsh plugin --profile <profile> add @morehao/dsh-commands
@@ -66,8 +68,10 @@ dsh plugin --profile <profile> add @morehao/dsh-commands
 
 每条命令注册到 `ctx.commands`。执行时 handler 校验必填输入，构造一条 user 消息经 `invocation.agent.followup()` 注入当前会话，由 agent 加载对应 skill、按对应分支执行——交互确认步骤与自然语言触发完全一致。`COMMANDS` 表自包含，不读取任何仓库文件。
 
+注入的 user 消息优先用 DSH 官方 `@deepseek-ai/dsh-llm` 的 `createUserMessage`（可选加载，自带 `id` 与深冻结）；没有该模块（离线冒烟 / 旧宿主）时回退到等价的本地契约实现（`role` / `source` / `content` / `id` 齐全、深冻结）。
+
 - 编辑技能内容（本源 `~/.agents/skills/...`，或 `$DSH_HOME/skills` 下的软链）**无需重启**，下次执行即生效。
-- 委托型命令执行前会确认依赖技能是否已安装（`$DSH_HOME/skills`、`$DSH_AGENTS_HOME/skills` 或 `~/.agents/skills`，顺序固定）；缺失时不注入消息，直接返回 `/skill-init` 与手工 `npx` 两条修复路径。
+- 委托型命令执行前会确认依赖技能可用：优先问 DSH 技能目录（`ctx.skills.list()`，权威、已校验），目录不可用时回退文件探测（`$DSH_HOME/skills`、`$DSH_AGENTS_HOME/skills` 或 `~/.agents/skills`，顺序固定）；缺失时不注入消息，直接返回 `/skill-init` 与手工 `npx` 两条修复路径。
 - 维护型委托 `/skill-init`（含 `--update`）注入一条 user 消息，由 agent 调用 `skill_init` 工具（`mode=init/update/check`、`names`、`yes`）：默认先确认；无确认通道时只返回计划、不写盘；`yes=true` 只跳过确认，不跳过所有权/真实目录/指纹检查。
 - 命令与工具共用 `lib/skill-setup.js` 的 observe/plan/apply/verify；无 `tools`、无 `agent.followup` 或注入失败时，命令回退到 `runSkillInit` / `runSkillUpdate`，旧宿主仍可用。
 - 修改插件源码（含 `COMMANDS` 表）需重启 dsh web；只有以 `link:` 方式接入时才改源码即生效，npm 版是拷贝。

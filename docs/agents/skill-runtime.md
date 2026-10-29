@@ -22,7 +22,7 @@
 
 1. `parseSkillInitInput(rawInput)`：`--update` / `--yes` / 技能名；init 带技能名、未知 flag → 用法错误，不注入。
 2. 无 `tools`、无 `agent.followup` → `fallback(parsed, invocation)` 直接跑 `runSkillInit` / `runSkillUpdate`，返回文本。
-3. `buildSkillInitMessage()` → `createUserMessage()` → `invocation.agent.followup()`；成功返回一行「已开始检查/更新依赖技能」。
+3. `buildSkillInitMessage()` → `createUserMessage()`（优先官方 `@deepseek-ai/dsh-llm`，无则本地契约实现）→ `invocation.agent.followup()`；成功返回一行「已开始检查/更新依赖技能」。
 4. 注入抛错 → 本地回退，不留半条消息。
 
 `plan` 只算一次是硬约束：命令层不 plan，工具层只 plan 一次并把它用于确认、写盘与回执。
