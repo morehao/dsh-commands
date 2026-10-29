@@ -22,6 +22,18 @@ const ALLOWED_EXACT = new Set([
 const ALLOWED_PREFIX = ["dist/", "locale/"];
 
 const cacheDir = await mkdtemp(join(tmpdir(), "dsh-commands-pack-"));
+// npm 10（CI 的 Node 22 自带）在 `npm pack` 时仍会执行 prepack，`--ignore-scripts` 不生效，
+// 构建脚本的 `✔ 已生成 dist/…` 会混进 stdout，直接 JSON.parse 会报 "Unexpected token '✔'"。
+// 只截取第一段 `[` 到最后一段 `]`，兼容有前导日志与 npm 11 的纯 JSON 输出。
+function parsePackJson(stdout) {
+	const start = stdout.indexOf("[");
+	const end = stdout.lastIndexOf("]");
+	if (start === -1 || end < start) {
+		throw new Error(`npm pack 未输出 JSON 清单：\n${stdout}`);
+	}
+	return JSON.parse(stdout.slice(start, end + 1));
+}
+
 let files;
 try {
 	const { stdout } = await run(
@@ -29,7 +41,7 @@ try {
 		["pack", "--dry-run", "--json", "--ignore-scripts"],
 		{ cwd: new URL("..", import.meta.url), env: { ...process.env, npm_config_cache: cacheDir } },
 	);
-	files = JSON.parse(stdout)[0].files.map((f) => f.path);
+	files = parsePackJson(stdout)[0].files.map((f) => f.path);
 } finally {
 	await rm(cacheDir, { recursive: true, force: true });
 }
