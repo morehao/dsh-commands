@@ -40,9 +40,9 @@ const fail = (file, detail) => {
 	console.error(`✖ ${rel(file)}\n${detail}`);
 };
 
-const jsFiles = collect(["lib", "scripts"]);
+const jsFiles = collect(["scripts"]);
 if (jsFiles.length === 0) {
-	console.error("✖ lib/ 与 scripts/ 下没有可检查的 JS 文件");
+	console.error("✖ scripts/ 下没有可检查的 JS 文件");
 	process.exit(1);
 }
 for (const file of jsFiles) {

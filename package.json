@@ -39,6 +39,10 @@
   "dependencies": {
     "@morehao/dsh-skills-console": ">=0.7.0 <0.8.0"
   },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3"
+  },
   "engines": {
     "node": ">=22.20",
     "dsh": ">=0.2.1-rc.3 <0.3.0-0"
@@ -64,6 +68,13 @@
     }
   },
   "scripts": {
+    "build": "node scripts/build-host.mjs",
+    "dev": "node scripts/build-host.mjs --watch",
+    "check:build": "node scripts/build-host.mjs --check",
+    "check:artifact": "node scripts/check-artifact.mjs",
+    "prepare": "npm run build",
+    "prepack": "npm run build",
+    "pretest": "npm run build",
     "test": "npm run smoke:setup && npm run smoke:plan && npm run smoke:tool && npm run smoke:command && npm run smoke:plugin-update && npm run smoke:contract",
     "smoke:setup": "node scripts/smoke-skill-setup.mjs",
     "smoke:plan": "node scripts/smoke-skill-plan.mjs",
@@ -71,7 +82,7 @@
     "smoke:command": "node scripts/smoke-skill-command.mjs",
     "smoke:plugin-update": "node scripts/smoke-plugin-update.mjs",
     "smoke:contract": "node scripts/smoke-skill-contract.mjs",
-    "check": "npm run check:syntax && npm run check:naming && npm run check:pack && npm run check:release-notes && npm test",
+    "check": "npm run check:syntax && npm run build && npm run check:artifact && npm run check:naming && npm run check:pack && npm run check:release-notes && npm test",
     "check:syntax": "node scripts/check-syntax.mjs",
     "check:naming": "node scripts/check-naming.mjs",
     "check:pack": "node scripts/check-pack.mjs",

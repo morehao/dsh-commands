@@ -29,8 +29,8 @@ try {
 	process.env.HOME = home;
 	process.env.DSH_HOME = dshHome;
 
-	const { observeSkills, planOperation, requirements } = await import("../lib/skill-setup.js");
-	const { COMMANDS } = await import("../lib/index.js");
+	const { observeSkills, planOperation, requirements } = await import("../dist/skill-setup.js");
+	const { COMMANDS } = await import("../dist/index.js");
 	const names = ["git-kit", "handoff", "disk-cleanup"];
 
 	await mkdir(join(home, ".agents", "skills"), { recursive: true });

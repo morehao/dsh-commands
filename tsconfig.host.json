@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "rootDir": "lib",
+    "outDir": "dist",
+    "newLine": "lf",
+    "sourceMap": false,
+    "declaration": false,
+    "removeComments": false,
+    "allowJs": true,
+    "checkJs": false,
+    "strict": true,
+    "useUnknownInCatchVariables": false,
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "noImplicitAny": false,
+    "types": ["node"]
+  },
+  "include": ["lib"],
+  "exclude": ["lib/**/*.test.ts"]
+}

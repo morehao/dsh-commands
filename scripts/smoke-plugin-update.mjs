@@ -34,18 +34,18 @@ const {
 	createPluginUpdater,
 	readPluginState,
 	writePluginState
-} = await import(join(here, "..", "lib", "plugin-update.js"));
+} = await import(join(here, "..", "dist", "plugin-update.js"));
 const {
 	PLUGIN_UPDATE_USAGE,
 	parsePluginUpdateInput,
 	buildPluginUpdateMessage,
 	formatCheck,
 	makePluginUpdateHandler
-} = await import(join(here, "..", "lib", "plugin-update-command.js"));
+} = await import(join(here, "..", "dist", "plugin-update-command.js"));
 const { confirmPluginUpdate, applyPluginUpdate, verifyPluginUpdate } = await import(
-	join(here, "..", "lib", "plugin-update-service.js")
+	join(here, "..", "dist", "plugin-update-service.js")
 );
-const { createPluginUpdateTool } = await import(join(here, "..", "lib", "tool-plugin-update.js"));
+const { createPluginUpdateTool } = await import(join(here, "..", "dist", "tool-plugin-update.js"));
 
 const META = { name: "@morehao/dsh-commands", version: "0.3.3", repo: "morehao/dsh-commands" };
 const okFetch = (version) => async () => ({ ok: true, json: async () => ({ version }) });

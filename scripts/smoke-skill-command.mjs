@@ -26,9 +26,9 @@ function check(ok, label, detail) {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const { SKILL_INIT_USAGE, parseSkillInitInput, buildSkillInitMessage, createUserMessage, createNoticeMessage, setUserMessageFactory, makeSkillInitHandler } = await import(
-	join(here, "..", "lib", "skill-command.js")
+	join(here, "..", "dist", "skill-command.js")
 );
-const index = await import(join(here, "..", "lib", "index.js"));
+const index = await import(join(here, "..", "dist", "index.js"));
 
 // 隔离：apply() 的版本提示会读写状态文件，用临时 HOME/DSH_HOME 避免碰真实 ~/.dsh。
 const sandbox = await mkdtemp(join(tmpdir(), "dsh-commands-skill-command-"));

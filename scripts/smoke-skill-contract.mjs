@@ -32,7 +32,7 @@ function check(ok, label, detail) {
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const script = join(repoRoot, "scripts", "check-skill-contract.mjs");
-const { COMMANDS } = await import("../lib/index.js");
+const { COMMANDS } = await import("../dist/index.js");
 
 const root = await mkdtemp(join(tmpdir(), "dsh-commands-contract-"));
 const home = join(root, "home");
