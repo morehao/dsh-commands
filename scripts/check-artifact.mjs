@@ -37,4 +37,9 @@ assert.equal(PLUGIN_META.version, pkg.version, 'dist 读到的 package.json 版�
 const distTs = walk(path.join(ROOT, 'dist')).filter((f) => f.endsWith('.ts'));
 assert.deepEqual(distTs, [], 'dist 里不应出现 .ts');
 
-console.log('✓ 产物自检通过：dist 可加载、导出完整、资源路径正确、无残留 .ts');
+const libJs = fs.existsSync(path.join(ROOT, 'lib'))
+  ? walk(path.join(ROOT, 'lib')).filter((f) => f.endsWith('.js'))
+  : [];
+assert.deepEqual(libJs, [], 'lib/ 里不应再有 .js 源（应全部迁到 .ts）');
+
+console.log('✓ 产物自检通过：dist 可加载、导出完整、资源路径正确、无残留 .ts/.js');

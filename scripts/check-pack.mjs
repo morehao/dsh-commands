@@ -19,7 +19,7 @@ const ALLOWED_EXACT = new Set([
 	"cordis.patch.yml",
 	"icon.svg",
 ]);
-const ALLOWED_PREFIX = ["lib/", "locale/"];
+const ALLOWED_PREFIX = ["dist/", "locale/"];
 
 const cacheDir = await mkdtemp(join(tmpdir(), "dsh-commands-pack-"));
 let files;
@@ -38,7 +38,7 @@ const unwanted = files.filter(
 	(p) => !ALLOWED_EXACT.has(p) && !ALLOWED_PREFIX.some((prefix) => p.startsWith(prefix)),
 );
 // 反向检查：白名单里的必备文件一个都不能少（少了就是个空包 / 缺图标缺 locale）。
-const required = ["package.json", "README.md", "LICENSE", "cordis.patch.yml", "icon.svg"];
+const required = ["package.json", "README.md", "LICENSE", "cordis.patch.yml", "icon.svg", "dist/index.js"];
 const missing = required.filter((p) => !files.includes(p));
 
 for (const p of unwanted) console.error(`✗ 包内出现非白名单文件：${p}`);

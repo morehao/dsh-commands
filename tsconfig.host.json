@@ -10,7 +10,7 @@
     "sourceMap": false,
     "declaration": false,
     "removeComments": false,
-    "allowJs": true,
+    "allowJs": false,
     "checkJs": false,
     "strict": true,
     "useUnknownInCatchVariables": false,

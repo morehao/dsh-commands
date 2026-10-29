@@ -4,16 +4,16 @@
   "description": "把 agent-skills 的 git-kit Git 工作流、handoff 跨会话交接与 disk-cleanup 磁盘清理以 dsh 原生斜杠命令接入（薄意图表，委托对应 skill 执行）",
   "icon": "icon.svg",
   "type": "module",
-  "main": "lib/index.js",
+  "main": "dist/index.js",
   "exports": {
-    ".": "./lib/index.js",
+    ".": "./dist/index.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
   "files": [
-    "lib",
+    "dist",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg"
