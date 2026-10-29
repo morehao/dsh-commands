@@ -37,7 +37,7 @@
     "skills"
   ],
   "dependencies": {
-    "@morehao/dsh-skills-console": ">=0.7.0 <0.8.0"
+    "@morehao/dsh-skills-console": ">=0.7.1 <0.8.0"
   },
   "devDependencies": {
     "@types/node": "22.20.5",

@@ -7,7 +7,7 @@
 - 包：`@morehao/dsh-commands`，dsh 原生斜杠命令集合；**仓库根即包根**。host 是 TypeScript 源码（`lib/*.ts`），由 `tsc` 编译到 `dist/`，**构建产物不入库**；没有 web client half。
 - 入口：[lib/index.ts](lib/index.ts) 注册 `COMMANDS`（委托型）与维护型委托 `/skill-init`（经 `skill_init` 工具执行）；运行时入口是产物 `dist/index.js`。
 - 技能逻辑不在本仓：`git-kit` / `handoff` / `disk-cleanup` 由 [`morehao/agent-skills`](https://github.com/morehao/agent-skills) 提供；本仓只做「命令 → skill 分支」的薄映射。
-- 运行时：Node.js ≥ 22.20；运行时依赖 `@morehao/dsh-skills-console`（`>=0.7.0 <0.8.0`）。构建期 devDependencies：`typescript` / `@types/node`。
+- 运行时：Node.js ≥ 22.20；运行时依赖 `@morehao/dsh-skills-console`（`>=0.7.1 <0.8.0`）。构建期 devDependencies：`typescript` / `@types/node`。
 - 发布：tag `vX.Y.Z` → GitHub Actions OIDC → npm；发布成功后 CI 用注记 tag 正文创建 GitHub Release。
 
 | 路径 | 作用 |
