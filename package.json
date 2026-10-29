@@ -37,7 +37,7 @@
     "skills"
   ],
   "dependencies": {
-    "skills": "~1.7.4"
+    "@morehao/dsh-skills-console": ">=0.7.0 <0.8.0"
   },
   "engines": {
     "node": ">=22.20",
@@ -64,13 +64,12 @@
     }
   },
   "scripts": {
-    "test": "npm run smoke:setup && npm run smoke:plan && npm run smoke:tool && npm run smoke:command && npm run smoke:plugin-update && npm run smoke:cache && npm run smoke:contract",
+    "test": "npm run smoke:setup && npm run smoke:plan && npm run smoke:tool && npm run smoke:command && npm run smoke:plugin-update && npm run smoke:contract",
     "smoke:setup": "node scripts/smoke-skill-setup.mjs",
     "smoke:plan": "node scripts/smoke-skill-plan.mjs",
     "smoke:tool": "node scripts/smoke-skill-tool.mjs",
     "smoke:command": "node scripts/smoke-skill-command.mjs",
     "smoke:plugin-update": "node scripts/smoke-plugin-update.mjs",
-    "smoke:cache": "node scripts/smoke-skill-cache.mjs",
     "smoke:contract": "node scripts/smoke-skill-contract.mjs",
     "check": "npm run check:syntax && npm run check:naming && npm run check:pack && npm run check:release-notes && npm test",
     "check:syntax": "node scripts/check-syntax.mjs",
