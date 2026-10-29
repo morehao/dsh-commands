@@ -1,6 +1,6 @@
 {
   "name": "@morehao/dsh-commands",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "把 agent-skills 的 git-kit Git 工作流、handoff 跨会话交接与 disk-cleanup 磁盘清理以 dsh 原生斜杠命令接入（薄意图表，委托对应 skill 执行）",
   "icon": "icon.svg",
   "type": "module",

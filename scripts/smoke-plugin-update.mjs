@@ -27,6 +27,7 @@ function check(ok, label, detail) {
 const here = dirname(fileURLToPath(import.meta.url));
 const {
 	OFFICIAL_REGISTRY,
+	PLUGIN_META,
 	parseSemver,
 	isNewerVersion,
 	registryPlan,
@@ -297,6 +298,20 @@ const env = { ...process.env, DSH_HOME: home };
 	const state6 = await readPluginState(env);
 	check(state6.pendingVersion === "0.4.0" && state6.lastSeenVersion === "0.3.3", "10.6 写 pending 状态（供重启提示）", JSON.stringify(state6));
 
+	// 10.6b 插件重载时提示可能已把 lastSeenVersion 推进到新版：工具写 pending 时不得回退。
+	await writePluginState(env, { lastSeenVersion: "0.4.0" });
+	const pm6b = { installBundle: async () => ({ application: "applied" }), removeBundle: async () => ({ application: "applied" }) };
+	const tool6b = createPluginUpdateTool({
+		env,
+		services: { ...baseServices(), pluginManager: () => pm6b },
+		createUpdater: () => ({ check: async () => observed() }),
+		readVersion: () => "0.4.0",
+		runJob: async ({ work }) => ({ value: await work({ progress() {} }) })
+	});
+	await tool6b.execute({ mode: "apply", yes: true }, { agent: {} });
+	const state6b = await readPluginState(env);
+	check(state6b.lastSeenVersion === "0.4.0" && state6b.pendingVersion === "0.4.0", "10.6b 不回退已推进的 lastSeenVersion", JSON.stringify(state6b));
+
 	const tool7 = createPluginUpdateTool({
 		env,
 		services: { ...baseServices(), pluginManager: () => pm6 },
@@ -306,6 +321,58 @@ const env = { ...process.env, DSH_HOME: home };
 	});
 	const r7 = await tool7.execute({ mode: "apply", yes: true }, { agent: {} });
 	check(r7.status === "error" && r7.markdown.includes("boom"), "10.7 更新失败 → error", r7.markdown);
+}
+
+// ---- 11) 启动提示只补发一次（agent/created 监听必须一次性）---------------
+{
+	const { apply } = await import(join(here, "..", "dist", "index.js"));
+	const noticeHome = await mkdtemp(join(tmpdir(), "dsh-commands-notice-"));
+	await writePluginState(
+		{ ...process.env, DSH_HOME: noticeHome },
+		{ lastSeenVersion: "0.3.4", pendingVersion: PLUGIN_META.version }
+	);
+	const handlers = new Set();
+	const ctx = {
+		get(name) {
+			if (name === "profileContext") return { home: noticeHome };
+			return undefined;
+		},
+		commands: { register: async () => {} },
+		on(event, callback) {
+			handlers.add(callback);
+			return () => handlers.delete(callback);
+		},
+		effect(factory) {
+			return factory();
+		}
+	};
+	await apply(ctx);
+	// apply() 里的 announcePluginUpdate 是 `void` 触发的，等它把状态读完再断言。
+	await new Promise((resolve) => setTimeout(resolve, 50));
+	check(handlers.size === 1, "11. 无活跃 agent 时注册一个 agent/created 监听", String(handlers.size));
+	const injected = [];
+	const fireCreated = async () => {
+		for (const callback of [...handlers]) {
+			await callback({ agent: { inject: (message) => injected.push(message) } });
+		}
+	};
+	await fireCreated();
+	await fireCreated();
+	await fireCreated();
+	check(injected.length === 1, "11. 后续多个 agent 不再重复提示", String(injected.length));
+	check(
+		injected[0]?.source?.form === "notice" && injected[0]?.content?.[0]?.text?.includes("已更新到"),
+		"11. 补发的是更新提示",
+		JSON.stringify(injected[0]?.content)
+	);
+	check(handlers.size === 0, "11. 补发后注销监听", String(handlers.size));
+	const noticeState = await readPluginState(process.env, noticeHome);
+	check(
+		noticeState.lastSeenVersion === PLUGIN_META.version && noticeState.pendingVersion === null,
+		"11. 补发后状态推进到当前版本",
+		JSON.stringify(noticeState)
+	);
+	await rm(noticeHome, { recursive: true, force: true });
 }
 
 await rm(home, { recursive: true, force: true });

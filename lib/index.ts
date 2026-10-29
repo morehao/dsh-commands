@@ -342,7 +342,13 @@ function briefError(message) {
 	return brief;
 }
 
-/** 向活跃 agent 注入一条 notice；没有活跃 agent 时等下一个 agent 创建再补发。返回是否已投递。 */
+/**
+ * 向活跃 agent 注入一条 notice；没有活跃 agent 时等下一个 agent 创建再补发**一次**。
+ * 返回是否已投递。
+ *
+ * `agent/created` 监听必须在补发成功后立即注销：否则同一进程里之后每个新建会话都会
+ * 再收到同一条「已更新」提示（0.4.0 的重复提示就源于监听没有一次性）。
+ */
 function deliverNotice(ctx, text, home) {
 	const agents = typeof ctx.get === "function" ? ctx.get("agents") : undefined;
 	const build = () => createNoticeMessage(text);
@@ -357,29 +363,63 @@ function deliverNotice(ctx, text, home) {
 			// 单个 agent 注入失败不影响其它
 		}
 	}
-	const onCreated = async ({ agent }: any = {}) => {
+	let fired = false;
+	let off: (() => void) | undefined;
+	// ctx.on 在宿主里返回退订函数（个别实现是 { dispose }），两种都接住。
+	const track = (subscription: any) => {
+		if (typeof subscription === "function") off = subscription;
+		else if (subscription && typeof subscription.dispose === "function") off = () => subscription.dispose();
+		else off = undefined;
+	};
+	const stopListening = () => {
+		const dispose = off;
+		off = undefined;
 		try {
-			if (typeof agent?.inject === "function") {
-				agent.inject(build());
-				await writePluginState(
-					process.env,
-					{
-						...(await readPluginState(process.env, home)),
-						lastSeenVersion: PLUGIN_META.version,
-						pendingVersion: null
-					},
-					home
-				);
-			}
+			dispose?.();
 		} catch {
-			// 忽略
+			// 注销失败不影响已投递结果
+		}
+	};
+	const onCreated = async ({ agent }: any = {}) => {
+		if (fired || typeof agent?.inject !== "function") return;
+		try {
+			agent.inject(build());
+		} catch {
+			// 注入失败：保留监听，等下一个 agent 重试
+			return;
+		}
+		fired = true;
+		stopListening();
+		try {
+			await writePluginState(
+				process.env,
+				{
+					...(await readPluginState(process.env, home)),
+					lastSeenVersion: PLUGIN_META.version,
+					pendingVersion: null
+				},
+				home
+			);
+		} catch {
+			// 状态写失败不影响已经投递的提示
 		}
 	};
 	try {
 		if (typeof ctx.effect === "function" && typeof ctx.on === "function") {
-			ctx.effect(() => ctx.on("agent/created", onCreated), "dsh-commands:version-notice");
+			ctx.effect(() => {
+				track(ctx.on("agent/created", onCreated));
+				const inner = off;
+				return () => {
+					off = undefined;
+					try {
+						inner?.();
+					} catch {
+						// 忽略
+					}
+				};
+			}, "dsh-commands:version-notice");
 		} else if (typeof ctx.on === "function") {
-			ctx.on("agent/created", onCreated);
+			track(ctx.on("agent/created", onCreated));
 		}
 	} catch {
 		// 宿主不支持事件订阅：仅保留 state，下次启动重试
