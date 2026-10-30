@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.4.2] - 2026-10-30
+
+### 修复
+
+- **委托型斜杠命令误报「技能未安装」**：`resolveSkillAvailability` 原先把「`ctx.skills.list()` 返回的目录里不含该技能」当成权威的未安装并直接返回。但宿主可能把技能发现交给 preset（web/desktop profile 把宿主层 `skill-filesystem` 设为 `disabled`、改由 `presets/standard.patch.yml` 挂载），此时宿主层 `list()` 返回空目录——文件明明已装却被判缺失，导致 `/git-*`、`/handoff`、`/cleanup` 全部被拦。现在 entry 未命中时先回退 `skillInstalledByFs()` 文件探测，命中即按已安装（`from: "fs"`）放行；registry 不含该技能且文件也不存在时，才报未安装。`/skill-init`（走 console / 文件探测）不受影响。
+- `scripts/smoke-skill-command.mjs` 把原「registry 明确没有该技能 → 报未安装」用例改为两组回归：空 registry + 临时 HOME 已装 `git-kit` → 正常委托（回退文件探测）；空 registry + 无技能文件 → 仍报未安装。
+
 ## [v0.4.1] - 2026-10-29
 
 ### 修复

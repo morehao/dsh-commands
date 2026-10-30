@@ -9,7 +9,7 @@
  *
  * 不依赖 dsh，也不跑真实安装。
  */
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -248,12 +248,27 @@ process.env.DSH_HOME = join(sandbox, "dsh");
 		const { result, messages } = await invoke(def.handler);
 		check(result.kind === "success" && messages.length === 1, "6.1 registry 命中：正常委托", JSON.stringify(result));
 	}
-	// 6.2 registry 明确没有该技能：报未安装
+	// 6.2 registry 返回空目录/不含该技能（宿主层 discovery 被 preset 接管）：不得判缺失，回退文件探测
+	const gitKitDir = join(process.env.HOME, ".agents", "skills", "git-kit");
+	// 6.2a 空 registry + 临时 HOME 已装 git-kit → 正常委托（回退文件探测命中）
+	{
+		await mkdir(gitKitDir, { recursive: true });
+		await writeFile(join(gitKitDir, "SKILL.md"), "# git-kit\n");
+		try {
+			const registered = await runApply((name) => (name === "skills" ? { list: async () => [] } : undefined));
+			const def = registered.find((entry) => entry.name === "git-message");
+			const { result, messages } = await invoke(def.handler);
+			check(result.kind === "success" && messages.length === 1, "6.2a 空 registry + 文件存在：正常委托（回退文件探测）", JSON.stringify(result));
+		} finally {
+			await rm(gitKitDir, { recursive: true, force: true });
+		}
+	}
+	// 6.2b 空 registry + 无技能文件 → 仍报未安装（两者都无才是真缺失）
 	{
 		const registered = await runApply((name) => (name === "skills" ? { list: async () => [] } : undefined));
 		const def = registered.find((entry) => entry.name === "git-message");
 		const { result, messages } = await invoke(def.handler);
-		check(result.kind === "error" && /未安装/.test(result.text) && messages.length === 0, "6.2 registry 无该技能：报未安装", JSON.stringify(result));
+		check(result.kind === "error" && /未安装/.test(result.text) && messages.length === 0, "6.2b 空 registry + 无技能文件：仍报未安装", JSON.stringify(result));
 	}
 	// 6.3 registry.list 抛错：回退文件探测（临时 HOME 无技能 → 未安装）
 	{
