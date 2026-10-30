@@ -231,10 +231,15 @@ async function skillInstalledByFs(skill, env = process.env) {
 }
 
 /**
- * 技能可用性：优先问 DSH 技能目录（权威、已校验），目录不可用时回退文件探测。
+ * 技能可用性：优先问 DSH 技能目录（权威、已校验），目录不可用**或目录里不含该技能**时回退文件探测。
  *
  * `ctx.get("skills").list({ cwd })` 返回已校验的技能候选（`{ name, invocation: { modelInvocable, userInvocable } }`），
  * 能正确反映 frontmatter 非法 / `disable-model-invocation` 等被过滤的情况；只查文件存在会误判。
+ *
+ * 但「目录里没有」并不等于「没安装」：宿主可能把技能发现交给 preset（如 web/desktop profile 把宿主
+ * `skill-filesystem` 设为 disabled、改由 `presets/standard.patch.yml` 挂载），此时宿主层 `list()` 返回
+ * 空目录。若据此判缺失，会让 `/git-*`、`/handoff`、`/cleanup` 全部误报「技能未安装」。所以 entry 未命中
+ * 时必须回退文件探测，两者都没有才算真正缺失。
  *
  * @returns {Promise<{ installed: boolean, modelInvocable: boolean, from: "registry" | "fs" }>}
  */
@@ -249,14 +254,17 @@ async function resolveSkillAvailability(ctx, skill) {
 				if (entry !== undefined) {
 					return { installed: true, modelInvocable: entry.invocation?.modelInvocable !== false, from: "registry" };
 				}
-				// 目录可用且明确没有该技能：这是权威的“未安装”。
-				return { installed: false, modelInvocable: false, from: "registry" };
+				// entry 未命中：可能是 preset 接管后返回的空目录，不能据此判缺失，落到下方文件探测。
 			}
 		} catch {
 			// 目录不可用（无 provider / 读取失败）：退回文件探测。
 		}
 	}
-	return { installed: await skillInstalledByFs(skill), modelInvocable: true, from: "fs" };
+	if (await skillInstalledByFs(skill)) {
+		return { installed: true, modelInvocable: true, from: "fs" };
+	}
+	// registry 有结果但不含该技能、文件探测也不存在：才是真正的“未安装”。
+	return { installed: false, modelInvocable: false, from: "registry" };
 }
 
 /** console 停用 / 仅手动 时的不可用文案（不改文件探测，只提前解释原因）。 */
