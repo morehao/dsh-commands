@@ -1,11 +1,11 @@
 # Changelog
 
-## [Unreleased]
+## [v0.4.3] - 2026-10-31
 
 ### 变更
 
 - **自更新引擎改用共享包**：`lib/plugin-update.ts` 从 341 行缩到约 210 行，只保留本仓特有的身份读取、`state.json` 状态与旧签名适配；semver / registry 计划 / 超时 / 缓存 / `pnpm view` 回退全部来自 `@morehao/dsh-plugin-kit`（与 `dsh-skills-console`、`dsh-github-trending` 共用一份）。`/plugin-update` 的行为、文案与 `plugin_update` 工具入参不变，`check()/apply` 的对外字段不变（`PluginCheckResult` 原样返回）。
-- 依赖新增 `@morehao/dsh-plugin-kit`（`>=0.1.0 <0.2.0`，宿主能力仍全部注入，不引入 `@deepseek-ai/*` 运行时 import）。
+- 依赖新增 `@morehao/dsh-plugin-kit`（`>=0.1.0 <0.2.0`，宿主能力仍全部注入，不引入 `@deepseek-ai/*` 运行时 import）。引擎侧同时带来 `link:` / `file:` / `workspace:` 安装拒绝（`LINKED_INSTALL`）与 remove 后装失败的原版本回滚（`ROLLBACK_FAILED`）两项本就符合本仓意图的护栏。
 
 ## [v0.4.2] - 2026-10-30
 
