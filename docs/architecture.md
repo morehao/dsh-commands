@@ -43,7 +43,7 @@ export const REQUIRED_SKILLS = Object.freeze(referencedSkills(COMMANDS));
 
 `/plugin-update` 是第二条**维护型委托**命令：handler 解析 `--apply` / `--yes` 后注入一条 user 消息，让 agent 调用 `plugin_update` 工具。工具内 observe → plan → confirm → apply → verify：
 
-- `lib/plugin-update.ts` 从自身 `package.json` 取包名/版本；最新版优先走 `pnpm view <pkg>@latest version --json`（继承 profile 的镜像/私源/token），拿不到再用 `ctx.get("pluginManager").registries()` 的 registry 计划（含镜像/私源）依次查 `<pkg>/latest`（8s 超时、5 分钟缓存），手写 semver 比较；另含状态文件 `<home>/dsh-commands/state.json` 的读写（`home` 优先取 `profileContext.home`，缺省 `$DSH_HOME`）。
+- `lib/plugin-update.ts` 是本仓的**薄适配层**：从自身 `package.json` 取包名/版本、维护状态文件 `<home>/dsh-commands/state.json`（`home` 优先取 `profileContext.home`，缺省 `$DSH_HOME`），并把旧签名（`manualCommand(meta, name)`、`createPluginUpdater(deps).check()`）适配到共享包 `@morehao/dsh-plugin-kit`。查最新版 / semver / registry 计划 / 超时 / 5 分钟缓存 / `pnpm view` 回退都在共享包里，三个插件共用一份（最新版优先 `pnpm view <pkg>@latest version --json`，继承 profile 的镜像/私源/token；拿不到再用 `ctx.get("pluginManager").registries()` 的 registry 计划）。
 - `lib/plugin-update-service.ts` 负责确认（`userQuestions.ask`）与执行：`installBundle → already-installed → removeBundle → installBundle`，返回 `application` / `restartRequired`。
 - `lib/tool-plugin-update.ts` 负责流程编排；apply 时把安装挂到 `ctx.jobs`（作业行/面板可见、可停止），成功后写 `pendingVersion`。
 - 更新自身会 `remove` 本插件、触发重载，因此工具把安装放进后台作业，并用作业完成通知 + 启动提示兜底；`ctx.get("pluginManager")` / `userQuestions` / `jobs` 都按可选服务惰性取，缺失时回退本地只读检查或给手动命令。
