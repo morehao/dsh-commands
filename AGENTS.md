@@ -7,7 +7,7 @@
 - 包：`@morehao/dsh-commands`，dsh 原生斜杠命令集合；**仓库根即包根**。host 是 TypeScript 源码（`lib/*.ts`），由 `tsc` 编译到 `dist/`，**构建产物不入库**；没有 web client half。
 - 入口：[lib/index.ts](lib/index.ts) 注册 `COMMANDS`（委托型）与维护型委托 `/skill-init`（经 `skill_init` 工具执行）；运行时入口是产物 `dist/index.js`。
 - 技能逻辑不在本仓：`git-kit` / `handoff` / `disk-cleanup` 由 [`morehao/agent-skills`](https://github.com/morehao/agent-skills) 提供；本仓只做「命令 → skill 分支」的薄映射。
-- 运行时：Node.js ≥ 22.20；运行时依赖 `@morehao/dsh-skills-console`（`>=0.7.1 <0.8.0`）。构建期 devDependencies：`typescript` / `@types/node`。
+- 运行时：Node.js ≥ 22.20；运行时依赖 `@morehao/dsh-skills-console`（`>=0.7.1 <0.8.0`，技能安装/更新）与 `@morehao/dsh-plugin-kit`（`>=0.1.0 <0.2.0`，插件自更新引擎）。构建期 devDependencies：`typescript` / `@types/node`。
 - 发布：tag `vX.Y.Z` → GitHub Actions OIDC → npm；发布成功后 CI 用注记 tag 正文创建 GitHub Release。
 
 | 路径 | 作用 |
@@ -20,7 +20,7 @@
 | [lib/skill-command.ts](lib/skill-command.ts) | `/skill-init` flags 解析、注入消息、handler、本地回退 |
 | [lib/skill-confirm.ts](lib/skill-confirm.ts) | `skill_init` 的确认问题/选项与 `confirmSkillPlan()` |
 | [lib/tool-skill-init.ts](lib/tool-skill-init.ts) | `skill_init` 工具定义、execute 编排、结果 markdown |
-| [lib/plugin-update.ts](lib/plugin-update.ts) / [lib/plugin-update-command.ts](lib/plugin-update-command.ts) | npm 版本检查、状态文件、`/plugin-update` 命令层 |
+| [lib/plugin-update.ts](lib/plugin-update.ts) / [lib/plugin-update-command.ts](lib/plugin-update-command.ts) | 自更新薄适配层（`@morehao/dsh-plugin-kit` 引擎 + 身份/状态/旧签名）、`/plugin-update` 命令层 |
 | [lib/plugin-update-service.ts](lib/plugin-update-service.ts) / [lib/tool-plugin-update.ts](lib/tool-plugin-update.ts) | 自更新确认/执行、`plugin_update` 工具 |
 | [lib/proc.ts](lib/proc.ts) / [lib/text.ts](lib/text.ts) | 子进程 timeout/abort/输出上限；ANSI/spinner/tail 清洗 |
 | [tsconfig.host.json](tsconfig.host.json) / [scripts/build-host.mjs](scripts/build-host.mjs) | `tsc` 构建配置与脚本 |
