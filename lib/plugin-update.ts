@@ -11,7 +11,6 @@
  * 安装与确认仍在 `plugin-update-service.js`：它需要 `ctx.jobs` 与 `userQuestions`，
  * 属于本仓的交互外壳，不放进共享包。
  */
-import { readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
@@ -22,10 +21,14 @@ import {
 	parseSemver,
 	registryPlan
 } from "@morehao/dsh-plugin-kit";
-import { createPluginUpdater as createKitUpdater } from "@morehao/dsh-plugin-kit/update";
+import {
+	createPluginUpdater as createKitUpdater,
+	createPnpmViewRunner
+} from "@morehao/dsh-plugin-kit/update";
+import { createPluginMeta, readInstalledVersion as kitReadInstalledVersion } from "@morehao/dsh-plugin-kit/meta";
+import { spawnCollect, type ExecOptions, type ExecResult } from "@morehao/dsh-plugin-kit/exec";
 import type { PluginCheckResult } from "./types.js";
 import { resolveDshHome } from "./skill-paths.js";
-import { spawnCollect } from "./proc.js";
 
 export { isNewerVersion, parseSemver, registryPlan, OFFICIAL_REGISTRY };
 export const FETCH_TIMEOUT_MS = 8000;
@@ -39,18 +42,12 @@ export interface PluginMeta {
 
 /** 插件身份：包名、当前版本与仓库（从 package.json 读一次，避免和命令文案硬编码漂移）。 */
 export const PLUGIN_META: PluginMeta = (() => {
-	try {
-		const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-		const repo = typeof pkg.repository === "string" ? pkg.repository : pkg.repository?.url;
-		const match = /github\.com[/:]([\w.-]+\/[\w.-]+?)(?:\.git)?$/i.exec(String(repo || ""));
-		return {
-			name: String(pkg.name || ""),
-			version: String(pkg.version || ""),
-			...(match === null ? {} : { repo: match[1] })
-		};
-	} catch {
-		return { name: "", version: "" };
-	}
+	const meta = createPluginMeta({ pkgUrl: new URL("../package.json", import.meta.url) });
+	return {
+		name: meta.name,
+		version: meta.version,
+		...(meta.repo === null ? {} : { repo: meta.repo })
+	};
 })();
 
 export interface PluginUpdaterDeps {
@@ -71,44 +68,24 @@ export interface PluginUpdaterDeps {
 }
 
 /**
+ * 本仓的进程策略：spawnCollect 默认继承 process.env（与旧 proc.ts 行为一致）；
+ * 包装一层把 kit 的 ExecResult 对齐到 createPnpmViewRunner 的 exec 签名。
+ */
+function execForPnpmView(command: string, args: string[], options?: ExecOptions): Promise<ExecResult> {
+	return spawnCollect(command, args, options);
+}
+
+/**
  * 默认的 `pnpm view`：拿 profile 的包管理器与工作目录，继承 `.npmrc` 的镜像 / 私源 / token。
  * 拿不到 profile 目录就返回 null，由共享包回退到 registry 计划。
  */
 function defaultPnpmView(getProfile: (() => any) | undefined): (spec: string) => Promise<string | null> {
-	return async (spec: string): Promise<string | null> => {
-		if (typeof getProfile !== "function") return null;
-		let profile: any;
-		try {
-			profile = getProfile();
-		} catch {
-			return null;
-		}
-		const dir = typeof profile?.dir === "string" ? profile.dir : undefined;
-		if (dir === undefined) return null;
-		const pm = profile?.packageManager;
-		const command = typeof pm?.command === "string" ? pm.command : "pnpm";
-		const prefix = Array.isArray(pm?.args) ? pm.args : [];
-		let result: any;
-		try {
-			result = await spawnCollect({
-				command,
-				args: [...prefix, "view", spec, "version", "--json"],
-				cwd: dir,
-				timeoutMs: FETCH_TIMEOUT_MS,
-				collectStdout: true
-			});
-		} catch {
-			return null;
-		}
-		if (result.code !== 0) return null;
-		try {
-			const parsed = JSON.parse(result.stdout.trim() || "null");
-			const version = Array.isArray(parsed) ? parsed.at(-1) : parsed;
-			return typeof version === "string" && parseSemver(version) !== undefined ? version.trim() : null;
-		} catch {
-			return null;
-		}
-	};
+	if (typeof getProfile !== "function") return async () => null;
+	return createPnpmViewRunner({
+		getProfile,
+		exec: execForPnpmView,
+		timeoutMs: FETCH_TIMEOUT_MS
+	});
 }
 
 /** 旧签名的适配层：工具 / 命令 / index 只依赖 `.check()`。 */
@@ -158,12 +135,7 @@ export function manualCommand(meta: PluginMeta, profileName: string | null = nul
 
 /** 安装副本的当前版本（每次重新读文件：更新后同一进程内也能读到新值）。 */
 export function readInstalledVersion(): string {
-	try {
-		const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-		return typeof pkg.version === "string" ? pkg.version.trim() : "";
-	} catch {
-		return "";
-	}
+	return kitReadInstalledVersion({ pkgUrl: new URL("../package.json", import.meta.url) });
 }
 
 /**

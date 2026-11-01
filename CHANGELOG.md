@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### 变更
+
+- **迁移到 `@morehao/dsh-plugin-kit@^0.3.1`**（行为等价）：`lib/plugin-update.ts` 里的插件身份读取（`PLUGIN_META`）改用 `./meta` 的 `createPluginMeta`、`readInstalledVersion()` 改用 `./meta` 的 `readInstalledVersion`（仍每次重读、不缓存）；原先手写的 `pnpm view` 解析改为 `./update` 的 `createPnpmViewRunner`（通过 `./exec` 的 `spawnCollect` 注入本仓进程策略）。对外接口、`/plugin-update` 与 `plugin_update` 工具的行为、错误码与 `PluginCheckResult` 形状一律不变。`lib/proc.ts` 保留（其它调用方仍用），本仓仅在 plugin-update 内改用 kit 的 `spawnCollect`。
+
 ## [v0.4.4] - 2026-11-01
 
 ### 变更
