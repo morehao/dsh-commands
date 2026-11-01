@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.4.4] - 2026-11-01
+
+### 变更
+
+- **依赖升级**：`@morehao/dsh-plugin-kit` `>=0.1.0 <0.2.0` → `>=0.2.1 <0.3.0`。0.2.x 复用宿主原生 registryPlan 与主流 semver 包，与 0.1.0 对外行为兼容，`/plugin-update` 与 `plugin_update` 工具用法不变。
+
 ## [v0.4.3] - 2026-10-31
 
 ### 变更
