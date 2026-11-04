@@ -109,7 +109,7 @@ export async function resolveConsoleApi({
   importer,
   createSkillsConsole,
 }: ResolveConsoleApiOptions = {}): Promise<{ api: any; mod: any }> {
-  // 1) 旧 console 守卫：版本 < 0.8 且 bundle 启用 → 直接 blocked，绝不建 headless。
+  // 1) 旧 console 守卫：版本 < 0.7.0 且 bundle 启用 → 直接 blocked，绝不建 headless。
   const profile = await readProfileConsole(env);
   if (profile && profile.enabled && profile.version && compareVersions(profile.version, MIN_CONSOLE_VERSION) < 0) {
     throw new ConsoleResolveError(
