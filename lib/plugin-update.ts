@@ -38,14 +38,18 @@ export interface PluginMeta {
 	name: string;
 	version: string;
 	repo?: string;
+	/** 本插件 `package.json` 的导入地址：供自更新引擎每次现读磁盘已安装版本。 */
+	pkgUrl?: URL;
 }
 
 /** 插件身份：包名、当前版本与仓库（从 package.json 读一次，避免和命令文案硬编码漂移）。 */
+const PKG_URL = new URL("../package.json", import.meta.url);
 export const PLUGIN_META: PluginMeta = (() => {
-	const meta = createPluginMeta({ pkgUrl: new URL("../package.json", import.meta.url) });
+	const meta = createPluginMeta({ pkgUrl: PKG_URL });
 	return {
 		name: meta.name,
 		version: meta.version,
+		pkgUrl: PKG_URL,
 		...(meta.repo === null ? {} : { repo: meta.repo })
 	};
 })();
@@ -102,6 +106,8 @@ export function createPluginUpdater({
 		meta: {
 			name: meta.name,
 			version: meta.version,
+			// pkgUrl：让引擎每次 check 现读磁盘已安装版本（是否落后的唯一真相）。
+			...(meta.pkgUrl === undefined ? {} : { pkgUrl: meta.pkgUrl }),
 			...(meta.repo === undefined ? {} : { repository: `https://github.com/${meta.repo}` })
 		},
 		...(getPluginManager === undefined ? {} : { getPluginManager }),
@@ -118,8 +124,10 @@ export function createPluginUpdater({
 		return {
 			packageName: view.packageName,
 			currentVersion: view.currentVersion,
+			runtimeVersion: view.runtimeVersion,
 			latestVersion: view.latestVersion,
 			updateAvailable: view.updateAvailable,
+			restartRequired: Boolean(view.restartRequired),
 			checkFailed: view.checkFailed,
 			manualCommand: view.manualCommand
 		};

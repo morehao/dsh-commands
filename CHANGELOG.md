@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.4.6] - 2026-11-04
+
+### 修复
+
+- **plugin-update**：升级 `@morehao/dsh-plugin-kit@^0.5.0`，`PLUGIN_META` 带 `pkgUrl`，让自更新引擎每次 check 现读**磁盘已安装版本**作为「是否落后」的唯一真相。修复「一键更新写入磁盘后、未重启时，`/plugin-update` 仍报有新版本」及重复重装同版本的问题；`PluginCheckResult` 新增 `runtimeVersion` / `restartRequired`（可选字段，向后兼容）。
+
 ## [v0.4.5] - 2026-11-01
 
 ### 变更

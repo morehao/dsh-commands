@@ -119,8 +119,12 @@ export interface SkillPlan {
 export interface PluginCheckResult {
   packageName: string;
   currentVersion: string | null;
+  /** 本进程加载的代码版本（诊断用）。 */
+  runtimeVersion?: string;
   latestVersion: string | null;
   updateAvailable: boolean;
+  /** 磁盘已是最新、但需重启生效。 */
+  restartRequired?: boolean;
   checkFailed: boolean;
   manualCommand: string;
 }
