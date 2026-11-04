@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.4.7] - 2026-11-04
+
+### 变更
+
+- **deps**：放宽 `@morehao/dsh-skills-console` 依赖上界 `>=0.7.1 <0.8.0` → `>=0.7.1 <0.9.0`，兼容已发布的 0.8.x。已核对 0.7.1 → 0.8.11 的 `/api` 契约（`api.d.ts` 逐字相同、`API_VERSION` 均为 1、`createSkillsConsole` 与 `list/adopt/install/update` 方法齐全），无破坏性变化。仅放宽范围，不改依赖性质（仍为 `dependencies`，代码侧仍是动态 import + 缺失优雅报错）。
+- 修正 `lib/console-api.ts` 一处注释笔误（旧 console 守卫实际比较的是 `< 0.7.0`，非 `< 0.8`）。
+
 ## [v0.4.6] - 2026-11-04
 
 ### 修复
