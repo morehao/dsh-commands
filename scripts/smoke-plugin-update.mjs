@@ -3,7 +3,7 @@
  * `/plugin-update` 冒烟（v2：委托式问答 + 一键更新）：
  * - 版本比较 / registry 计划 / 只读 check（沿用）；
  * - 命令解析、委托注入、本地回退；
- * - 服务层：确认、apply（installBundle → already-installed → removeBundle → installBundle）、verify；
+ * - 服务层：确认、apply（0.2.2+ 优先 updateBundle；旧宿主 installBundle → already-installed → removeBundle → installBundle）、verify；
  * - 工具层：check 三态、apply 无能力 blocked、无确认 plan-only、yes=true 走更新并写 state；
  * - 状态文件读写。
  *
@@ -223,6 +223,50 @@ const failFetch = async () => {
 
 	check((await verifyPluginUpdate({ targetVersion: "0.4.0", readVersion: () => "0.4.0" })).ok === true, "8. verify 命中");
 	check((await verifyPluginUpdate({ targetVersion: "0.4.0", readVersion: () => "0.3.3" })).ok === false, "8. verify 未命中");
+}
+
+// ---- 8b) applyPluginUpdate：0.2.2+ updateBundle -----------------------
+{
+	const calls = [];
+	const pm = {
+		updateBundle: async (name, version) => {
+			calls.push(`update:${name}@${version}`);
+			return { step: "install", result: { application: "restart-required" } };
+		}
+	};
+	const result = await applyPluginUpdate({ pluginManager: pm, name: META.name, targetVersion: "0.4.0" });
+	check(calls.length === 1 && calls[0] === `update:${META.name}@0.4.0`, "8b. 有 updateBundle 时优先走宿主更新", calls.join("|"));
+	check(result.application === "restart-required" && result.restartRequired === true, "8b. updateBundle → 需重启", JSON.stringify(result));
+
+	let threw = false;
+	try {
+		await applyPluginUpdate({
+			pluginManager: { updateBundle: async () => ({ step: "install", result: { error: { message: "boom" } } }) },
+			name: META.name,
+			targetVersion: "0.4.0"
+		});
+	} catch {
+		threw = true;
+	}
+	check(threw, "8b. updateBundle 失败 → 抛错");
+
+	threw = false;
+	try {
+		await applyPluginUpdate({
+			pluginManager: {
+				updateBundle: async () => ({
+					step: "install",
+					result: { error: { message: "disk full" } },
+					restore: { error: { message: "restore failed" } }
+				})
+			},
+			name: META.name,
+			targetVersion: "0.4.0"
+		});
+	} catch (error) {
+		threw = /恢复旧版本失败/.test(String(error?.message ?? error));
+	}
+	check(threw, "8b. 恢复失败 → 报恢复失败");
 }
 
 // ---- 9) 状态文件 -------------------------------------------------------

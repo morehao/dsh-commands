@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.4.8] - 2026-11-05
+
+### 变更
+
+- **update**：一键更新优先走 dsh 0.2.2 的 `pluginManager.updateBundle`（宿主负责目标校验、移除、安装与失败自动恢复），旧宿主回退原有 `installBundle → already-installed → removeBundle → installBundle` 路径；两条路径返回形状一致。
+- **deps**：升级 `@morehao/dsh-plugin-kit` 到 0.5.1（check 侧复用宿主 `listVersions`）。
+- `locale/zh.json` 增加 `meta.detail`，适配 0.2.2 的 Plugins 长描述页。
+
 ## [v0.4.7] - 2026-11-04
 
 ### 变更

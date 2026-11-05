@@ -107,15 +107,39 @@ export interface ApplyPluginUpdateOptions {
   reporter?: { progress?: (line: string) => void };
 }
 
-/** 执行更新：`installBundle` →（already-installed）`removeBundle` → `installBundle`。 */
+/**
+ * 执行更新：0.2.2+ 优先 `updateBundle`（宿主负责校验 / 移除 / 安装 / 失败恢复）；
+ * 旧宿主回退 `installBundle` →（already-installed）`removeBundle` → `installBundle`。
+ */
 export async function applyPluginUpdate({
   pluginManager,
   name,
   targetVersion,
   reporter,
 }: ApplyPluginUpdateOptions): Promise<{ application: string; restartRequired: boolean; updatedVersion: string }> {
-  if (!pluginManager || typeof pluginManager.installBundle !== "function") {
-    throw new Error("当前环境不支持一键更新（缺少 pluginManager.installBundle）");
+  const canUpdate = typeof pluginManager?.updateBundle === "function";
+  const canInstall = typeof pluginManager?.installBundle === "function";
+  if (!canUpdate && !canInstall) {
+    throw new Error("当前环境不支持一键更新（缺少 pluginManager.installBundle / updateBundle）");
+  }
+  if (canUpdate) {
+    reporter?.progress?.(`正在更新到 v${targetVersion}`);
+    const outer = unwrapResult(await pluginManager.updateBundle(name, targetVersion));
+    // updateBundle 的形状：{ step, result: ChangeResult, restore? }；远程可能再包一层 {ok,value}。
+    const inner = outer?.result && typeof outer.result === "object" ? outer.result : outer;
+    if (outer?.restore?.error) {
+      throw new Error(`更新失败且恢复旧版本失败：${String(failureMessage({ error: outer.restore.error })).slice(0, 600)}`);
+    }
+    if (inner?.error) throw new Error(String(failureMessage(inner)).slice(0, 600));
+    const application = inner?.application;
+    if (!["applied", "restart-required", "overridden"].includes(application)) {
+      throw new Error(`更新未生效（application=${application ?? "unknown"}）`);
+    }
+    return {
+      application,
+      restartRequired: application !== "applied",
+      updatedVersion: targetVersion
+    };
   }
   const spec = `${name}@${targetVersion}`;
   reporter?.progress?.(`正在更新到 v${targetVersion}`);
