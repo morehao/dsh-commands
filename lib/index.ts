@@ -77,7 +77,7 @@ export const COMMANDS = [
 	{
 		name: "git-commit-push",
 		branch: "commit-push",
-		description: "基于代码变更生成 commit message 并自动提交推送到远端；稳定分支（主干/集成分支、发布/稳定/维护分支、版本线分支）时自动创建分支"
+		description: "基于代码变更生成 commit message 并提交、推送到远端；处于稳定分支时自动新建工作分支"
 	},
 	{
 		name: "git-branch",
@@ -103,7 +103,7 @@ export const COMMANDS = [
 		branch: "release",
 		hint: "[版本号或tag]",
 		description:
-			"pr-merge 之后的发布段：在已合并的稳定分支上打 tag → 默认创建 GitHub/GitLab Release → 按仓库探测跟踪后效（流水 / 产物）并出校验回执；tag 注记与 Release body 共用同一份变更说明（中文摘要 + 折叠原文，推送前确认并冻结）；版本源由读仓库判定，不假定清单格式（只打标签用 /git-tag）"
+			"pr-merge 之后的发布段：在已合并的稳定分支上打 tag，默认创建 GitHub/GitLab Release，并跟踪流水/产物出校验回执；tag 注记与 Release 说明同源，推送前确认并冻结。只打标签用 /git-tag"
 	},
 	{
 		name: "git-tag",
