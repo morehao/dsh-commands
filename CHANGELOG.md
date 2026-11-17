@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.4.10] - 2026-11-17
+
+### 变更
+
+- **git-release / git-commit-push**：命令 `description` 与 agent-skills 主仓 `commands-opencode` 精简版对齐，去掉斜杠菜单里的正文流程外溢。
+  - `git-release`：删掉状态机/探测/`CHANGELOG` 分支等细节，保留「推送前确认并冻结」与「只打标签用 `/git-tag`」分界。
+  - `git-commit-push`：稳定分支分类枚举改为结论级「处于稳定分支时自动新建工作分支」。
+
 ## [v0.4.9] - 2026-11-12
 
 ### 变更
